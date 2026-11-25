@@ -1,0 +1,99 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react", "import"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "rules": {
+    // The automatic JSX runtime needs no React import.
+    "react/react-in-jsx-scope": "off",
+    "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }]
+  },
+  "ignorePatterns": ["dist"],
+  "overrides": [
+    {
+      // ADR 0001: the simulation must run without a browser and stay repeatable.
+      "files": ["src/sim/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                // Allow-list: relative files (the view and the app excepted) and the physics engine.
+                "group": [
+                  "*",
+                  "!./**",
+                  "!../**",
+                  "**/view",
+                  "**/view/**",
+                  "**/app",
+                  "**/app/**",
+                  "!@dimforge/rapier2d-compat",
+                  "!bun:test"
+                ],
+                "message": "The simulation imports only its own files and the physics engine."
+              }
+            ]
+          }
+        ],
+        "no-restricted-globals": [
+          "error",
+          { "name": "window", "message": "The simulation never touches the DOM." },
+          { "name": "document", "message": "The simulation never touches the DOM." },
+          { "name": "navigator", "message": "The simulation never touches the DOM." },
+          { "name": "localStorage", "message": "The simulation never touches the DOM." },
+          { "name": "requestAnimationFrame", "message": "The simulation never touches the DOM." },
+          { "name": "Date", "message": "The simulation never reads the wall clock." },
+          { "name": "performance", "message": "The simulation never reads the wall clock." },
+          { "name": "crypto", "message": "All randomness comes from the Run Seed." }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Math",
+            "property": "random",
+            "message": "All randomness comes from the Run Seed."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/view/**", "src/app/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/sim/*"],
+                "message": "Import the simulation through its public interface, src/sim."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/view/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/sim/*"],
+                "message": "Import the simulation through its public interface, src/sim."
+              },
+              {
+                "group": ["**/app", "**/app/*"],
+                "message": "The view does not depend on the app."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
