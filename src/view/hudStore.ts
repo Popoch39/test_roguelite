@@ -12,6 +12,7 @@ export interface HudState {
   runSeed: number;
   /** Empty unless the Player is choosing an Upgrade. */
   upgradeOffer: Upgrade[];
+  goldEarned: number;
   /** Null while the Run is still being played. */
   outcome: RunOutcome | null;
 }
@@ -24,5 +25,6 @@ export const useHudStore = create<HudState>(() => ({
   roomCount: 0,
   runSeed: 0,
   upgradeOffer: [],
+  goldEarned: 0,
   outcome: null,
 }));

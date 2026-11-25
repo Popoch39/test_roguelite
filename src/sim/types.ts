@@ -149,6 +149,8 @@ export interface RunState {
   upgradeOffer: Upgrade[];
   /** The Upgrades taken so far in the Run, in the order they were chosen; the same one can be there twice. */
   upgrades: Upgrade[];
+  /** Gold of the Enemies defeated so far in the Run. */
+  goldEarned: number;
   /** The identifier the next character to appear will get: none is ever given twice in a Run. */
   nextId: number;
   heroes: Hero[];

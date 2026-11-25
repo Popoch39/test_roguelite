@@ -46,6 +46,8 @@ export interface Tuning {
    */
   enemyAcceleration: number;
   enemyAttack: EnemyAttackTuning;
+  /** Gold credited to the Run for each Enemy defeated. */
+  enemyGold: number;
   /** How many Enemies each Room of a Run holds, in order: a Run has one Room per entry. */
   enemiesPerRoom: number[];
   wallThickness: number;
@@ -79,6 +81,7 @@ export const DEFAULT_TUNING: Tuning = {
     angle: Math.PI / 2,
     triggerRange: 1.5,
   },
+  enemyGold: 5,
   enemiesPerRoom: [3, 5, 7],
   wallThickness: 1,
   upgrades: [

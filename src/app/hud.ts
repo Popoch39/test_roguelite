@@ -12,6 +12,7 @@ export function syncHud(state: RunState): void {
     roomCount: state.roomTemplates.length,
     runSeed: state.seed,
     upgradeOffer: state.upgradeOffer,
+    goldEarned: state.goldEarned,
     outcome: state.outcome,
   };
   const shown = useHudStore.getState();
@@ -24,6 +25,7 @@ export function syncHud(state: RunState): void {
     next.runSeed !== shown.runSeed ||
     // The simulation replaces the offer, never changes it in place.
     next.upgradeOffer !== shown.upgradeOffer ||
+    next.goldEarned !== shown.goldEarned ||
     next.outcome !== shown.outcome
   ) {
     useHudStore.setState(next);
