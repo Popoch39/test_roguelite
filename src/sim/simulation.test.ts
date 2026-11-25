@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import {
   colliderOutlines,
   createRun,
+  DEFAULT_ROOM_TEMPLATES,
   DEFAULT_TUNING,
   initSimulation,
   step,
@@ -22,16 +23,27 @@ const ROOM: RoomTemplate = {
   width: 20,
   height: 12,
   entryPoint: { x: -3, y: 2 },
+  pillars: [],
   spawnPoints: [],
 };
 
-function startRun(overrides: Partial<RunOptions> = {}): Run {
-  return createRun({
+interface SingleRoomOptions extends Omit<RunOptions, "roomTemplates"> {
+  roomTemplate: RoomTemplate;
+}
+
+/** A Run of a single Room, with an Enemy on every spawn point of its Room Template. */
+function startRun(overrides: Partial<SingleRoomOptions> = {}): Run {
+  const { roomTemplate, tuning, ...options } = {
     seed: 1,
     heroStats: { speed: 6, maxHealth: 100 },
     tuning: DEFAULT_TUNING,
     roomTemplate: ROOM,
     ...overrides,
+  };
+  return createRun({
+    ...options,
+    tuning: { ...tuning, enemiesPerRoom: [roomTemplate.spawnPoints.length] },
+    roomTemplates: [roomTemplate],
   });
 }
 
@@ -81,7 +93,18 @@ function attackPhasesWhileHolding(
 
 /** A wide Room with the Hero in the middle and an Enemy on each of the given points. */
 function arena(...spawnPoints: Vec2[]): RoomTemplate {
-  return { width: 40, height: 40, entryPoint: { x: 0, y: 0 }, spawnPoints };
+  return { width: 40, height: 40, entryPoint: { x: 0, y: 0 }, pillars: [], spawnPoints };
+}
+
+/** A wide Room with a round pillar two units wide in its middle. */
+function aroundPillar(entryPoint: Vec2, ...spawnPoints: Vec2[]): RoomTemplate {
+  return {
+    width: 40,
+    height: 40,
+    entryPoint,
+    pillars: [{ center: { x: 0, y: 0 }, radius: 1 }],
+    spawnPoints,
+  };
 }
 
 function withAttack(heroAttack: Partial<Tuning["heroAttack"]>): Tuning {
@@ -180,6 +203,130 @@ function playFight(): Run {
   return run;
 }
 
+/** A Room Template told apart by its width, with six spawn points far from its entry point. */
+function hall(width: number): RoomTemplate {
+  return {
+    width,
+    height: 20,
+    entryPoint: { x: 2 - width / 2, y: 0 },
+    pillars: [],
+    spawnPoints: [
+      { x: 4, y: -8 },
+      { x: 4, y: 0 },
+      { x: 4, y: 8 },
+      { x: 10, y: -8 },
+      { x: 10, y: 0 },
+      { x: 10, y: 8 },
+    ],
+  };
+}
+
+const HALLS: RoomTemplate[] = [hall(30), hall(32), hall(34), hall(36)];
+
+/** The one of `HALLS` the Hero now stands in. */
+function currentHall(run: Run): RoomTemplate {
+  const template = HALLS.find(({ width }) => width === run.state.room.width);
+  if (!template) throw new Error("the Room comes from none of the halls");
+  return template;
+}
+
+// An Attack that covers the whole Room and defeats every standing Enemy in it on its second tick.
+const SWEEP: Tuning = {
+  ...standing(
+    withAttack({
+      windupTicks: 1,
+      activeTicks: 1,
+      recoveryTicks: 1,
+      damage: 50,
+      reach: 100,
+      angle: 2 * Math.PI,
+    }),
+  ),
+  enemyHealth: 50,
+  enemiesPerRoom: [2, 4, 5],
+};
+
+/** Holds the Attack request of the `SWEEP` tuning until the Hero has cleared the Room it stands in. */
+function clearRoom(run: Run): void {
+  const { roomIndex } = run.state;
+  for (let tick = 0; tick < 6; tick++) {
+    if (run.state.roomIndex !== roomIndex || run.state.phase !== "combat") return;
+    hold(run, { attack: true }, 1);
+  }
+  throw new Error("the Room was not cleared");
+}
+
+function startRunOfRooms(overrides: Partial<RunOptions> = {}): Run {
+  return createRun({
+    seed: 1,
+    heroStats: { speed: 6, maxHealth: 100 },
+    tuning: SWEEP,
+    roomTemplates: HALLS,
+    ...overrides,
+  });
+}
+
+/** Where the three Enemies of a one-Room Run stand when it starts. */
+function spawnPointsDrawn(seed: number): string {
+  const { state } = startRunOfRooms({
+    seed,
+    roomTemplates: [hall(30)],
+    tuning: { ...SWEEP, enemiesPerRoom: [3] },
+  });
+  return JSON.stringify(state.enemies.map(({ position }) => position));
+}
+
+/** The widths of the halls a Run goes through, in order. */
+function hallWidths(seed: number): number[] {
+  const run = startRunOfRooms({ seed });
+  return SWEEP.enemiesPerRoom.map(() => {
+    const { width } = run.state.room;
+    clearRoom(run);
+    return width;
+  });
+}
+
+/** A wide Room with a pillar two units wide, the Hero in its middle and one spawn point out of the way. */
+function pillarAt(center: Vec2): RoomTemplate {
+  return {
+    width: 40,
+    height: 40,
+    entryPoint: { x: 0, y: 0 },
+    pillars: [{ center, radius: 1 }],
+    spawnPoints: [{ x: -10, y: -10 }],
+  };
+}
+
+/** The default Run, but for Enemies that stand and a Hero whose Attack clears a Room at once. */
+function startDefaultRun(seed: number): Run {
+  return createRun({
+    seed,
+    heroStats: DEFAULT_TUNING.heroStats,
+    tuning: standing({ ...DEFAULT_TUNING, heroAttack: SWEEP.heroAttack }),
+    roomTemplates: DEFAULT_ROOM_TEMPLATES,
+  });
+}
+
+/** A whole Run of the default content: the Enemies chase and attack, the Hero clears each Room after a while. */
+function playDefaultRun(seed: number) {
+  const run = createRun({
+    seed,
+    heroStats: DEFAULT_TUNING.heroStats,
+    tuning: { ...DEFAULT_TUNING, heroAttack: SWEEP.heroAttack },
+    roomTemplates: DEFAULT_ROOM_TEMPLATES,
+  });
+  const rooms = [];
+  const spawnPoints = [];
+  while (run.state.phase === "combat") {
+    rooms.push(structuredClone(run.state.room));
+    spawnPoints.push(run.state.enemies.map(({ position }) => ({ ...position })));
+    holdMove(run, { x: 1, y: -1 }, 40);
+    hold(run, {}, 80);
+    clearRoom(run);
+  }
+  return { rooms, spawnPoints, state: run.state };
+}
+
 beforeAll(async () => {
   await initSimulation();
 });
@@ -210,11 +357,26 @@ describe("creating a Run", () => {
   });
 });
 
+describe("creating a Run from content that cannot fill it", () => {
+  test("refuses fewer Room Templates than the Run has Rooms", () => {
+    expect(() => startRunOfRooms({ roomTemplates: HALLS.slice(0, 2) })).toThrow(
+      "A Run of 3 Rooms needs 3 Room Templates, got 2",
+    );
+  });
+
+  test("refuses a Room Template with fewer spawn points than its Room has Enemies", () => {
+    expect(() => startRunOfRooms({ tuning: { ...SWEEP, enemiesPerRoom: [2, 7] } })).toThrow(
+      "Every Room Template needs at least 7 spawn points",
+    );
+  });
+});
+
 describe("moving the Hero", () => {
   const OPEN_ROOM: RoomTemplate = {
     width: 40,
     height: 40,
     entryPoint: { x: 0, y: 0 },
+    pillars: [],
     spawnPoints: [],
   };
 
@@ -344,6 +506,7 @@ describe("walls", () => {
     width: 20,
     height: 12,
     entryPoint: { x: 0, y: 0 },
+    pillars: [],
     spawnPoints: [],
   };
   test.each([
@@ -367,6 +530,7 @@ describe("walls", () => {
       width: 4,
       height: 60,
       entryPoint: { x: 0, y: -25 },
+      pillars: [],
       spawnPoints: [],
     };
     const run = startRun({ roomTemplate: corridor });
@@ -392,6 +556,56 @@ describe("walls", () => {
     const reach = onlyHero(run).position.x + 1.5;
     expect(reach).toBeLessThanOrEqual(10 + CONTACT_SLACK);
     expect(reach).toBeGreaterThan(10 - CONTACT_SLACK);
+  });
+});
+
+describe("pillars", () => {
+  test("stop the Hero", () => {
+    const run = startRun({ roomTemplate: aroundPillar({ x: -4, y: 0 }) });
+
+    holdMove(run, { x: 1, y: 0 }, 120);
+
+    const hero = onlyHero(run);
+    const reach = hero.position.x + hero.radius;
+    expect(reach).toBeLessThanOrEqual(-1 + CONTACT_SLACK);
+    expect(reach).toBeGreaterThan(-1 - CONTACT_SLACK);
+  });
+
+  test("let the Hero slide around them", () => {
+    const run = startRun({ roomTemplate: aroundPillar({ x: -4, y: 0.4 }) });
+    const hero = onlyHero(run);
+
+    for (let tick = 0; tick < 120; tick++) {
+      holdMove(run, { x: 1, y: 0 }, 1);
+
+      expect(Math.hypot(hero.position.x, hero.position.y)).toBeGreaterThan(
+        1 + hero.radius - CONTACT_SLACK,
+      );
+    }
+
+    expect(hero.position.x).toBeGreaterThan(3);
+  });
+
+  test("let an Enemy slide around them on its way to the Hero", () => {
+    const run = startRun({
+      tuning: neverAttacking(BITE),
+      roomTemplate: aroundPillar({ x: -4, y: 0 }, { x: 4, y: 0.4 }),
+    });
+    const hero = onlyHero(run);
+    const enemy = onlyEnemy(run);
+
+    // Eight units at 3 units per second take under three seconds in a straight line: four leave room for the detour.
+    for (let tick = 0; tick < 240; tick++) {
+      hold(run, {}, 1);
+
+      expect(Math.hypot(enemy.position.x, enemy.position.y)).toBeGreaterThan(
+        1 + enemy.radius - CONTACT_SLACK,
+      );
+    }
+
+    expect(distance(hero.position, enemy.position)).toBeLessThan(
+      hero.radius + enemy.radius + CONTACT_SLACK,
+    );
   });
 });
 
@@ -747,6 +961,207 @@ describe("an Enemy's Attack", () => {
   });
 });
 
+describe("a Run of several Rooms", () => {
+  test("starts with the first Room's count of Enemies, each on a spawn point of its own", () => {
+    const run = startRunOfRooms();
+    const { state } = run;
+
+    const standsOn = state.enemies.map(({ position }) => `${position.x}:${position.y}`);
+    expect(standsOn).toHaveLength(2);
+    expect(new Set(standsOn).size).toBe(2);
+    for (const { position } of state.enemies) {
+      expect(currentHall(run).spawnPoints).toContainEqual(position);
+    }
+  });
+
+  test("draws the spawn points with the Run Seed", () => {
+    expect(spawnPointsDrawn(7)).toBe(spawnPointsDrawn(7));
+    // Three spawn points out of six can be drawn twenty ways.
+    const draws = new Set(Array.from({ length: 20 }, (_, seed) => spawnPointsDrawn(seed)));
+    expect(draws.size).toBeGreaterThan(5);
+  });
+
+  test("loads the next Room, with its own count of Enemies, the tick the last Enemy is defeated", () => {
+    const run = startRunOfRooms();
+    expect(run.state.roomIndex).toBe(0);
+
+    // The Windup: nothing is damaged yet.
+    hold(run, { attack: true }, 1);
+    expect(run.state.roomIndex).toBe(0);
+    expect(run.state.enemies).toHaveLength(2);
+
+    hold(run, { attack: true }, 1);
+    expect(run.state.roomIndex).toBe(1);
+    expect(run.state.enemies).toHaveLength(4);
+    expect(run.state.phase).toBe("combat");
+  });
+
+  test("places the Hero at the entry point of each Room it enters", () => {
+    const run = startRunOfRooms();
+
+    for (const _ of SWEEP.enemiesPerRoom) {
+      expect(onlyHero(run).position).toEqual(currentHall(run).entryPoint);
+
+      holdMove(run, { x: 1, y: 1 }, 20);
+      clearRoom(run);
+    }
+  });
+
+  test("leaves nothing of the previous Room in the Hero's way", () => {
+    // The same Room twice over, but for a pillar that stands on the Hero's right in one and below it in the other.
+    const run = startRunOfRooms({
+      tuning: { ...SWEEP, enemiesPerRoom: [1, 1] },
+      roomTemplates: [pillarAt({ x: 3, y: 0 }), pillarAt({ x: 0, y: 3 })],
+    });
+    clearRoom(run);
+    const [pillar] = run.state.room.pillars;
+    const towardPreviousPillar = pillar?.center.x === 3 ? { x: 0, y: 1 } : { x: 1, y: 0 };
+
+    // One second at 6 units per second, through where the previous Room's pillar stood.
+    holdMove(run, towardPreviousPillar, 62);
+
+    const { position } = onlyHero(run);
+    expect(position.x + position.y).toBeGreaterThan(5.5);
+  });
+
+  test("gives the Enemies of each Room identifiers no earlier character had", () => {
+    const run = startRunOfRooms();
+    const seen = [onlyHero(run).id];
+
+    for (const _ of SWEEP.enemiesPerRoom) {
+      const ids = run.state.enemies.map(({ id }) => id);
+      expect(ids.filter((id) => seen.includes(id))).toEqual([]);
+      expect(new Set(ids).size).toBe(ids.length);
+      seen.push(...ids);
+      clearRoom(run);
+    }
+    expect(seen).toHaveLength(1 + 2 + 4 + 5);
+  });
+
+  test("carries the Hero's health over to the next Room, without healing", () => {
+    const biteRoom = arena({ x: 1.2, y: 0 });
+    const run = startRunOfRooms({
+      tuning: { ...BITE, heroAttack: SWEEP.heroAttack, enemyHealth: 50, enemiesPerRoom: [1, 1] },
+      roomTemplates: [biteRoom, { ...biteRoom }],
+    });
+    // The first Active Phase of the Enemy standing next to the Hero.
+    hold(run, {}, 20 + 1);
+    expect(onlyHero(run).health).toBe(85);
+
+    clearRoom(run);
+    expect(run.state.roomIndex).toBe(1);
+    expect(onlyHero(run).health).toBe(85);
+    expect(onlyHero(run).stats.maxHealth).toBe(100);
+
+    hold(run, {}, 20 + 1);
+    expect(onlyHero(run).health).toBe(70);
+  });
+
+  test("goes through Room Templates drawn with the Run Seed, never the same one twice", () => {
+    expect(hallWidths(7)).toEqual(hallWidths(7));
+    const sequences = new Set<string>();
+    for (let seed = 0; seed < 20; seed++) {
+      const widths = hallWidths(seed);
+      expect(new Set(widths).size).toBe(3);
+      expect([30, 32, 34, 36]).toEqual(expect.arrayContaining(widths));
+      sequences.add(widths.join());
+    }
+    // Three of four Room Templates can follow one another in twenty-four ways.
+    expect(sequences.size).toBeGreaterThan(5);
+  });
+});
+
+describe("the default Room Templates", () => {
+  test("number at least three, each with a few pillars", () => {
+    expect(DEFAULT_ROOM_TEMPLATES.length).toBeGreaterThanOrEqual(3);
+    for (const { pillars } of DEFAULT_ROOM_TEMPLATES) {
+      expect(pillars.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  test("have more spawn points than the seven Enemies of the fullest Room", () => {
+    for (const { spawnPoints } of DEFAULT_ROOM_TEMPLATES) {
+      expect(spawnPoints.length).toBeGreaterThan(7);
+    }
+  });
+
+  test("keep every spawn point at least six units from the entry point", () => {
+    for (const { entryPoint, spawnPoints } of DEFAULT_ROOM_TEMPLATES) {
+      for (const spawnPoint of spawnPoints) {
+        expect(distance(entryPoint, spawnPoint)).toBeGreaterThanOrEqual(6);
+      }
+    }
+  });
+
+  test("leave a character room to stand on the entry point and on every spawn point", () => {
+    // Half a unit for the character's own radius, and as much again to move.
+    const CLEARANCE = 1;
+    for (const { width, height, entryPoint, spawnPoints, pillars } of DEFAULT_ROOM_TEMPLATES) {
+      for (const point of [entryPoint, ...spawnPoints]) {
+        expect(Math.abs(point.x)).toBeLessThanOrEqual(width / 2 - CLEARANCE);
+        expect(Math.abs(point.y)).toBeLessThanOrEqual(height / 2 - CLEARANCE);
+        for (const pillar of pillars) {
+          expect(distance(point, pillar.center)).toBeGreaterThanOrEqual(pillar.radius + CLEARANCE);
+        }
+      }
+    }
+  });
+});
+
+describe("a Run of the default content", () => {
+  test("has three Rooms of 3, then 5, then 7 Enemies, and ends in victory", () => {
+    const run = startDefaultRun(1);
+
+    const enemyCounts = [0, 1, 2].map((roomIndex) => {
+      expect(run.state.roomIndex).toBe(roomIndex);
+      const count = run.state.enemies.length;
+      clearRoom(run);
+      return count;
+    });
+
+    expect(enemyCounts).toEqual([3, 5, 7]);
+    expect(run.state.outcome).toBe("victory");
+  });
+
+  test("lets the Hero enter every Room at least six units from each of its Enemies", () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const run = startDefaultRun(seed);
+      while (run.state.phase === "combat") {
+        for (const enemy of run.state.enemies) {
+          expect(distance(onlyHero(run).position, enemy.position)).toBeGreaterThanOrEqual(6);
+        }
+        clearRoom(run);
+      }
+    }
+  });
+});
+
+describe("the Run Seed", () => {
+  test("gives the same Rooms, spawn points and outcome for the same commands", () => {
+    const first = playDefaultRun(42);
+    const second = playDefaultRun(42);
+
+    expect(second.rooms).toEqual(first.rooms);
+    expect(second.spawnPoints).toEqual(first.spawnPoints);
+    expect(second.state).toEqual(first.state);
+    expect(first.rooms).toHaveLength(3);
+    expect(first.state.outcome).toBe("victory");
+  });
+
+  test("can give other Rooms and spawn points when it changes", () => {
+    const layouts = new Set<string>();
+    const draws = new Set<string>();
+    for (let seed = 0; seed < 10; seed++) {
+      const { rooms, spawnPoints } = playDefaultRun(seed);
+      layouts.add(JSON.stringify(rooms.map(({ walls, pillars }) => ({ walls, pillars }))));
+      draws.add(JSON.stringify(spawnPoints));
+    }
+
+    expect(layouts.size).toBeGreaterThan(1);
+    expect(draws.size).toBeGreaterThan(1);
+  });
+});
+
 describe("defeat", () => {
   test("ends the Run on the tick the Hero's health reaches zero, not before", () => {
     const run = startRun({
@@ -793,6 +1208,55 @@ describe("defeat", () => {
 
     expect(run.state).toEqual(frozen);
     expect(run.state.tick).toBe(21);
+  });
+});
+
+describe("victory", () => {
+  test("ends the Run the tick the last Enemy of the last Room is defeated, not before", () => {
+    const run = startRunOfRooms();
+    clearRoom(run);
+    clearRoom(run);
+
+    // The Recovery of the Attack that cleared the second Room, then the Windup of the next one.
+    hold(run, { attack: true }, 2);
+    expect(run.state.roomIndex).toBe(2);
+    expect(run.state.enemies).toHaveLength(5);
+    expect(run.state.phase).toBe("combat");
+    expect(run.state.outcome).toBeNull();
+
+    hold(run, { attack: true }, 1);
+    expect(run.state.enemies).toHaveLength(0);
+    expect(run.state.phase).toBe("ended");
+    expect(run.state.outcome).toBe("victory");
+  });
+
+  test("freezes the Run: further steps change nothing", () => {
+    const run = startRunOfRooms();
+    for (const _ of SWEEP.enemiesPerRoom) clearRoom(run);
+    const frozen = structuredClone(run.state);
+
+    hold(run, { move: { x: 1, y: 0 }, aim: { x: 0, y: 1 }, attack: true }, 60);
+
+    expect(run.state).toEqual(frozen);
+    expect(frozen.outcome).toBe("victory");
+  });
+
+  test("gives way to defeat when the Hero falls on the tick it defeats the last Enemy", () => {
+    const run = startRun({
+      tuning: { ...BITE, heroAttack: { ...SWING.heroAttack, damage: 50 } },
+      heroStats: { speed: 6, maxHealth: 15 },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+
+    // The Enemy's Active Phase starts on tick 21: the Hero's two-tick Windup is timed to end with it.
+    hold(run, {}, 18);
+    hold(run, { attack: true, aim: { x: 1, y: 0 } }, 2);
+    expect(run.state.outcome).toBeNull();
+
+    hold(run, {}, 1);
+    expect(run.state.enemies).toHaveLength(0);
+    expect(onlyHero(run).health).toBe(0);
+    expect(run.state.outcome).toBe("defeat");
   });
 });
 
@@ -976,11 +1440,13 @@ describe("the Hero's Attack", () => {
   });
 
   test("leaves nothing of a defeated Enemy in the Hero's way", () => {
+    // Clearing the Room would end the Run: an Enemy out of reach behind the Hero keeps it going.
+    const bystander = { x: -10, y: 0 };
     const withEnemy = startRun({
       tuning: { ...SWING, enemyHealth: 20 },
-      roomTemplate: arena({ x: 2, y: 0 }),
+      roomTemplate: arena({ x: 2, y: 0 }, bystander),
     });
-    const alone = startRun({ tuning: SWING, roomTemplate: arena() });
+    const alone = startRun({ tuning: SWING, roomTemplate: arena(bystander) });
 
     for (const run of [withEnemy, alone]) {
       attackOnce(run, { x: 1, y: 0 });
@@ -1244,7 +1710,13 @@ describe("the Dash", () => {
   test("is stopped by a wall, tick after tick", () => {
     const run = startRun({
       tuning: withDash({ durationTicks: 50, speed: 18 }),
-      roomTemplate: { width: 20, height: 12, entryPoint: { x: 0, y: 0 }, spawnPoints: [] },
+      roomTemplate: {
+        width: 20,
+        height: 12,
+        entryPoint: { x: 0, y: 0 },
+        pillars: [],
+        spawnPoints: [],
+      },
     });
     const hero = onlyHero(run);
 

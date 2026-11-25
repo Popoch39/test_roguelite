@@ -40,6 +40,23 @@ const DASH_RECHARGING_STYLE: CSSProperties = {
   background: "rgba(16, 19, 26, 0.8)",
 };
 
+const RUN_PROGRESS_STYLE: CSSProperties = {
+  position: "fixed",
+  top: 16,
+  left: 0,
+  right: 0,
+  textAlign: "center",
+  font: "600 18px system-ui, sans-serif",
+  color: "#f2f4f8",
+  pointerEvents: "none",
+};
+
+const RUN_SEED_STYLE: CSSProperties = {
+  marginTop: 4,
+  font: "12px monospace",
+  color: "#9aa5b4",
+};
+
 const RUN_END_STYLE: CSSProperties = {
   position: "fixed",
   inset: 0,
@@ -65,6 +82,7 @@ const NEW_RUN_STYLE: CSSProperties = {
 };
 
 const OUTCOME_TEXT: Record<RunOutcome, { title: string; detail: string }> = {
+  victory: { title: "Victory", detail: "Every Room is cleared." },
   defeat: { title: "Defeat", detail: "The Hero has fallen." },
 };
 
@@ -75,6 +93,7 @@ export function Hud({ onNewRun }: { onNewRun: () => void }) {
     <>
       <HeroHealth />
       <DashReadiness />
+      <RunProgress />
       {outcome && <RunEnd outcome={outcome} onNewRun={onNewRun} />}
     </>
   );
@@ -101,6 +120,19 @@ function DashReadiness() {
   return (
     <div style={ready ? DASH_READY_STYLE : DASH_RECHARGING_STYLE}>
       {ready ? "Dash ready" : "Dash recharging"}
+    </div>
+  );
+}
+
+function RunProgress() {
+  const roomNumber = useHudStore((hud) => hud.roomNumber);
+  const roomCount = useHudStore((hud) => hud.roomCount);
+  const runSeed = useHudStore((hud) => hud.runSeed);
+
+  return (
+    <div style={RUN_PROGRESS_STYLE}>
+      Room {roomNumber} / {roomCount}
+      <div style={RUN_SEED_STYLE}>Run Seed {runSeed}</div>
     </div>
   );
 }
