@@ -1,6 +1,6 @@
 # Vertical slice: a playable Run on the foundation architecture
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
