@@ -1828,20 +1828,20 @@ describe("the Hero's Attack", () => {
     expect([ticksIn("windup"), ticksIn("active"), ticksIn("recovery")]).toEqual([4, 5, 9]);
   });
 
-  test("keeps the Hero where it stood until the Recovery ends", () => {
-    const run = startRun();
+  test("slows the Hero to the tuning table's share of its speed until the Recovery ends", () => {
+    const run = startRun({ tuning: standing(withAttack({ speedFactor: 0.5 })) });
     holdMove(run, { x: 1, y: 0 }, 10);
     const stoodAt = { ...onlyHero(run).position };
 
     hold(run, { attack: true, move: { x: 1, y: 0 } }, 1);
-    for (let tick = 1; tick < 4 + 5 + 9; tick++) {
-      holdMove(run, { x: 1, y: 0 }, 1);
+    holdMove(run, { x: 1, y: 0 }, 4 + 5 + 9 - 1);
 
-      expect(distance(onlyHero(run).position, stoodAt)).toBeLessThan(0.001);
-    }
+    // 6 units per second halved, over the 18 ticks of the Attack.
+    expect(onlyHero(run).position.x - stoodAt.x).toBeCloseTo((6 * 0.5 * 18) / 60, 2);
 
+    const recoveredAt = onlyHero(run).position.x;
     holdMove(run, { x: 1, y: 0 }, 1);
-    expect(onlyHero(run).position.x).toBeGreaterThan(stoodAt.x + 0.05);
+    expect(onlyHero(run).position.x - recoveredAt).toBeCloseTo(6 / 60, 2);
   });
 
   test("keeps the aim direction of the tick it started, however the aim moves afterwards", () => {
@@ -2201,7 +2201,12 @@ describe("the Dash", () => {
   });
 
   test("leaves the Hero's Attack running when its request is ignored", () => {
-    const run = startRun({ tuning: { ...SLASH, dash: LEAP.dash }, roomTemplate: arena() });
+    // A rooted Hero, so that any distance covered could only come from the Dash.
+    const heroAttack = { ...SLASH.heroAttack, speedFactor: 0 };
+    const run = startRun({
+      tuning: { ...SLASH, heroAttack, dash: LEAP.dash },
+      roomTemplate: arena(),
+    });
     hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
     hold(run, {}, 5);
 

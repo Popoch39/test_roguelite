@@ -40,7 +40,7 @@ From the developer's point of view: the game rules run in a headless simulation 
 
 15. As a Player, I want to make an Attack toward my cursor with the left mouse button, so that I aim independently of my movement.
 16. As a Player, I want my Attack to have a brief Windup, an Active Phase and a Recovery, so that attacking is a commitment with a readable rhythm.
-17. As a Player, I want the Hero to stand still during an Attack, so that choosing when to attack is a real decision.
+17. As a Player, I want the Hero to be slowed down during an Attack, so that choosing when to attack is a real decision without rooting me in place.
 18. As a Player, I want to see the area my Attack covers while it is in its Active Phase, so that I learn its reach and width.
 19. As a Player, I want my Attack to damage every Enemy inside its area, each at most once per Attack, so that I am rewarded for positioning against a group.
 20. As a Player, I want Enemies I damage to be pushed back and to flash, so that I get clear confirmation and some breathing room.
@@ -131,7 +131,7 @@ From the developer's point of view: the game rules run in a headless simulation 
 - Durations are expressed in ticks at 60 ticks per second.
 - Hero and Enemies are dynamic rigid bodies with locked rotation; the physics engine resolves walls, pillars and the separation between characters. The Hero's velocity is set every tick. An Enemy's velocity is instead steered every tick toward the one it wants (the chase, or standing still during an Attack) by a bounded amount, so that a knockback survives the following ticks instead of being erased by the next one; the exception is the tick an Enemy leaves the chase to start its Windup, on which it stops dead. Knockback is an impulse. The Hero keeps colliding with Enemies and obstacles during a Dash.
 - Attacks never use collision events. During the Active Phase, each tick, a shape query finds the targets inside a circular sector in front of the attacker (reach and angle), and each target is damaged at most once per Attack.
-- Hero Attack: aimed along the command's aim direction at the tick it starts; the Hero's velocity is zero for the whole Attack. Being damaged does not interrupt it.
+- Hero Attack: aimed along the command's aim direction at the tick it starts; the Hero keeps a share of its speed, set in the tuning table, for the whole Attack. Being damaged does not interrupt it.
 - Dash: fixed duration and speed; direction is the movement direction, or the aim direction when the movement direction is zero. It cancels an Attack in any phase, makes the Hero immune to damage for its duration, and has a cooldown counted from its start. Dash and Attack requests are ignored outside the combat phase.
 - Enemy behaviour is a small state machine: chase the nearest Hero in a straight line; when within trigger range, stop and start an Attack whose direction is fixed at the start of the Windup; go through Windup, Active Phase and Recovery; resume the chase. There is no pathfinding. Being damaged or pushed back does not interrupt an Enemy's Attack.
 - Only Active Phases deal damage; contact does not.
@@ -140,7 +140,7 @@ From the developer's point of view: the game rules run in a headless simulation 
 - Loading a Room builds the colliders of its Room Template, places the Hero at the template's entry point with its current health, and places Enemies on spawn points drawn with the Run Seed. Enemy counts per Room are 3, 5 and 7.
 - Room Templates are data: outer walls of a rectangle, a few round pillars, one entry point, and more spawn points than the largest Enemy count, all at a safe distance from the entry point. At least three templates exist; a Run draws its three Rooms from them with the Run Seed, without repetition.
 - Upgrades are data: a name, the stat affected and the amount. The pool covers maximum health, Attack damage, movement speed, Dash cooldown and Attack reach. An offer is three distinct Upgrades drawn with the Run Seed; an Upgrade may be offered again later in the Run. Effective stats are computed from base stats plus the sum of the modifiers taken, so stacking is additive; the Dash cooldown has a floor. The maximum-health Upgrade also raises current health by the same amount.
-- Starting values, all tunable and all defined in one data table: Hero health 100, Hero speed 6 units per second, Hero Attack 4 / 5 / 9 ticks (Windup / Active Phase / Recovery) for 25 damage; Dash 10 ticks with a 45-tick cooldown; Enemy health 50, Enemy speed 3.5 units per second, Enemy Attack 30 / 6 / 30 ticks for 15 damage; 5 Gold per Enemy.
+- Starting values, all tunable and all defined in one data table: Hero health 100, Hero speed 6 units per second, Hero Attack 4 / 5 / 9 ticks (Windup / Active Phase / Recovery) for 25 damage, at 40% of the Hero's speed; Dash 10 ticks with a 45-tick cooldown; Enemy health 50, Enemy speed 3.5 units per second, Enemy Attack 30 / 6 / 30 ticks for 15 damage; 5 Gold per Enemy.
 
 ### Profile and app
 

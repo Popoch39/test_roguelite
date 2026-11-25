@@ -164,7 +164,7 @@ function actHeroes(
 
     const velocity = hero.dash
       ? scale(hero.dash.direction, tuning.dash.speed)
-      : scale(move, hero.attack ? 0 : hero.stats.speed);
+      : scale(move, hero.stats.speed * (hero.attack ? tuning.heroAttack.speedFactor : 1));
     world.getRigidBody(hero.bodyHandle).setLinvel(velocity, true);
   }
 }

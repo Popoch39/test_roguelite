@@ -14,6 +14,8 @@ export interface AttackTuning {
 export interface HeroAttackTuning extends AttackTuning {
   /** Strength of the push given to each Enemy the Attack damages. */
   knockbackImpulse: number;
+  /** Share of the Hero's speed kept for the whole Attack: attacking stays a commitment without rooting the Hero. */
+  speedFactor: number;
 }
 
 export interface EnemyAttackTuning extends AttackTuning {
@@ -65,6 +67,7 @@ export const DEFAULT_TUNING: Tuning = {
     reach: 2.4,
     angle: Math.PI * 0.6,
     knockbackImpulse: 6,
+    speedFactor: 0.4,
   },
   dash: { durationTicks: 10, speed: 18, cooldownTicks: 45, cooldownFloorTicks: 15 },
   heroRadius: 0.5,
