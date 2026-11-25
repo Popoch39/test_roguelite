@@ -1,4 +1,4 @@
-import { step, TICKS_PER_SECOND, type Command, type Run } from "../sim";
+import { colliderOutlines, step, TICKS_PER_SECOND, type Command, type Run } from "../sim";
 import type { Frame, FrameSource } from "../view/frame";
 
 const TICK_SECONDS = 1 / TICKS_PER_SECOND;
@@ -18,6 +18,7 @@ export function createLoop(run: Run, sampleCommands: () => Command[]): Loop {
 
   return {
     frame,
+    colliderOutlines: () => colliderOutlines(run),
     advance(deltaSeconds) {
       if (suspended) return;
       if (discardNextDelta) {
