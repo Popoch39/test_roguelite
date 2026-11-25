@@ -9,6 +9,7 @@ export type { Tuning } from "./tuning";
 export type {
   Attack,
   AttackPhase,
+  Combatant,
   Command,
   Dash,
   EffectiveStats,

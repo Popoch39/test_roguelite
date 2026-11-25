@@ -1,13 +1,14 @@
 import * as RAPIER from "@dimforge/rapier2d-compat";
-import { advanceAttack, attackSector, charactersInSector, startAttack } from "./attack";
+import { advanceAttack, resolveAttacks, startAttack } from "./attack";
 import { advanceDash, startDash } from "./dash";
 import { actEnemies, spawnEnemy } from "./enemy";
+import { createCombatant } from "./physics";
 import { drawSequence, drawSubset } from "./random";
 import { loadRoom, unloadRoom } from "./room";
 import type { Tuning } from "./tuning";
 import { effectiveStats, offerUpgrades, takeChosenUpgrade, UPGRADES_PER_OFFER } from "./upgrades";
 import type { Command, HeroStats, RoomTemplate, RunState } from "./types";
-import { normalize, scale } from "./vec";
+import { normalize, scale, subtract } from "./vec";
 
 // Not re-exported from the public interface, so only the simulation can reach the physics world.
 export const physicsWorld: unique symbol = Symbol("physicsWorld");
@@ -52,20 +53,6 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
   const world = new RAPIER.World({ x: 0, y: 0 });
   world.timestep = 1 / TICKS_PER_SECOND;
 
-  const body = world.createRigidBody(
-    RAPIER.RigidBodyDesc.dynamic()
-      .lockRotations()
-      // Lets the solver see a contact one tick ahead: two characters closing fast would otherwise overlap first.
-      .setSoftCcdPrediction(tuning.heroRadius),
-  );
-  world.createCollider(
-    RAPIER.ColliderDesc.ball(tuning.heroRadius)
-      // Without this, rubbing against a wall would eat part of the speed set each tick.
-      .setFriction(0)
-      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min),
-    body,
-  );
-
   const state: RunState = {
     seed,
     // The generator works on 32-bit unsigned integers.
@@ -83,9 +70,7 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
     nextId: HERO_ID + 1,
     heroes: [
       {
-        id: HERO_ID,
-        position: { x: 0, y: 0 },
-        radius: tuning.heroRadius,
+        ...createCombatant(world, HERO_ID, { x: 0, y: 0 }, tuning.heroRadius),
         facing: { x: 1, y: 0 },
         baseStats: { ...heroStats },
         stats: effectiveStats(heroStats, tuning, []),
@@ -94,7 +79,6 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
         attack: null,
         dash: null,
         dashReadyTick: 0,
-        bodyHandle: body.handle,
       },
     ],
     enemies: [],
@@ -145,7 +129,7 @@ export function step(run: Run, commands: readonly Command[]): void {
   const enemiesDefeated = removeDefeatedEnemies(state, world);
   state.goldEarned += enemiesDefeated * run[tuningTable].enemyGold;
   endRunOnDefeat(state);
-  leaveClearedRoom(state, world, run[tuningTable], enemiesDefeated);
+  leaveClearedRoom(state, run[tuningTable], enemiesDefeated);
   state.tick += 1;
 }
 
@@ -187,41 +171,25 @@ function actHeroes(
 
 function resolveHeroAttacks(state: RunState, world: RAPIER.World, tuning: Tuning): void {
   const { knockbackImpulse } = tuning.heroAttack;
-  for (const hero of state.heroes) {
-    const { attack } = hero;
-    if (attack?.phase !== "active") continue;
-    const sector = attackSector(hero.position, attack);
-    for (const enemy of charactersInSector(world, state.enemies, sector)) {
-      if (attack.damagedIds.includes(enemy.id)) continue;
-      attack.damagedIds.push(enemy.id);
-      enemy.health -= hero.stats.attackDamage;
-      enemy.lastDamagedTick = state.tick;
+  resolveAttacks(world, state.heroes, state.enemies, (enemy, hero) => {
+    enemy.health -= hero.stats.attackDamage;
+    enemy.lastDamagedTick = state.tick;
 
-      const away = normalize({
-        x: enemy.position.x - hero.position.x,
-        y: enemy.position.y - hero.position.y,
-      });
-      world
-        .getRigidBody(enemy.bodyHandle)
-        .applyImpulse({ x: away.x * knockbackImpulse, y: away.y * knockbackImpulse }, true);
-    }
-  }
+    const away = normalize(subtract(enemy.position, hero.position));
+    world
+      .getRigidBody(enemy.bodyHandle)
+      .applyImpulse({ x: away.x * knockbackImpulse, y: away.y * knockbackImpulse }, true);
+  });
 }
 
 function resolveEnemyAttacks(state: RunState, world: RAPIER.World, tuning: Tuning): void {
-  for (const enemy of state.enemies) {
-    const { attack } = enemy;
-    if (attack?.phase !== "active") continue;
-    const sector = attackSector(enemy.position, attack);
-    for (const hero of charactersInSector(world, state.heroes, sector)) {
-      // Not recorded as damaged either: a Dash that ends inside the sector leaves the Hero open to the rest of the Active Phase.
-      if (hero.dash) continue;
-      if (attack.damagedIds.includes(hero.id)) continue;
-      attack.damagedIds.push(hero.id);
-      hero.health = Math.max(hero.health - tuning.enemyAttack.damage, 0);
-      hero.lastDamagedTick = state.tick;
-    }
-  }
+  // A dashing Hero is left out before an Attack can record it as damaged: a Dash that ends inside the sector
+  // leaves the Hero open to the rest of the Active Phase.
+  const exposedHeroes = state.heroes.filter((hero) => !hero.dash);
+  resolveAttacks(world, state.enemies, exposedHeroes, (hero) => {
+    hero.health = Math.max(hero.health - tuning.enemyAttack.damage, 0);
+    hero.lastDamagedTick = state.tick;
+  });
 }
 
 /** Returns how many Enemies were defeated this tick. */
@@ -242,12 +210,7 @@ function endRunOnDefeat(state: RunState): void {
 }
 
 /** A Room is cleared on the tick its last Enemy is defeated; one that never held an Enemy is never cleared. */
-function leaveClearedRoom(
-  state: RunState,
-  world: RAPIER.World,
-  tuning: Tuning,
-  enemiesDefeated: number,
-): void {
+function leaveClearedRoom(state: RunState, tuning: Tuning, enemiesDefeated: number): void {
   if (state.phase !== "combat" || enemiesDefeated === 0 || state.enemies.length > 0) return;
   if (state.roomIndex + 1 < state.roomTemplates.length) {
     offerUpgrades(state, tuning);
@@ -258,8 +221,8 @@ function leaveClearedRoom(
 }
 
 function readPositions(state: RunState, world: RAPIER.World): void {
-  for (const character of [...state.heroes, ...state.enemies]) {
-    const { x, y } = world.getRigidBody(character.bodyHandle).translation();
-    character.position = { x, y };
+  for (const combatant of [...state.heroes, ...state.enemies]) {
+    const { x, y } = world.getRigidBody(combatant.bodyHandle).translation();
+    combatant.position = { x, y };
   }
 }

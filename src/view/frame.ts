@@ -1,5 +1,5 @@
 import { Vector3 } from "three";
-import type { LineSegment, RunState, Vec2 } from "../sim";
+import type { Combatant, LineSegment, RunState } from "../sim";
 
 /** What to draw: the simulation between its previous tick (alpha 0) and its current one (alpha 1). */
 export interface Frame {
@@ -42,15 +42,15 @@ export function enemyGroundPosition(frame: Frame, enemyId: number, target: Vecto
 }
 
 function groundPosition(
-  previousTick: readonly { id: number; position: Vec2 }[],
-  currentTick: readonly { id: number; position: Vec2 }[],
+  previousTick: readonly Combatant[],
+  currentTick: readonly Combatant[],
   id: number,
   alpha: number,
   target: Vector3,
 ): Vector3 {
-  const current = currentTick.find((character) => character.id === id)?.position;
+  const current = currentTick.find((combatant) => combatant.id === id)?.position;
   if (!current) return target;
-  const previous = previousTick.find((character) => character.id === id)?.position ?? current;
+  const previous = previousTick.find((combatant) => combatant.id === id)?.position ?? current;
   return target.set(
     previous.x + (current.x - previous.x) * alpha,
     0,

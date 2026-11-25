@@ -118,7 +118,7 @@ function standing(tuning: Tuning): Tuning {
 }
 
 // A quarter-circle sector, three units deep, against standing Enemies half a unit wide.
-const SWING: Tuning = standing({
+const SLASH: Tuning = standing({
   ...withAttack({
     windupTicks: 2,
     activeTicks: 3,
@@ -131,7 +131,7 @@ const SWING: Tuning = standing({
   enemyRadius: 0.5,
 });
 
-/** Runs one whole Attack of the `SWING` tuning, from its first tick to the end of its Recovery. */
+/** Runs one whole Attack of the `SLASH` tuning, from its first tick to the end of its Recovery. */
 function attackOnce(run: Run, aim: Vec2): void {
   hold(run, { attack: true, aim }, 1);
   hold(run, {}, 2 + 3 + 4 - 1);
@@ -810,7 +810,7 @@ describe("Enemies", () => {
 
   test("are carried back by the push of the Hero's Attack before they chase again", () => {
     const run = startRun({
-      tuning: { ...BITE, enemyAcceleration: 30, heroAttack: SWING.heroAttack },
+      tuning: { ...BITE, enemyAcceleration: 30, heroAttack: SLASH.heroAttack },
       roomTemplate: arena({ x: 2.5, y: 0 }),
     });
     // The Windup, then the first tick of the Active Phase, which damages the approaching Enemy.
@@ -881,6 +881,25 @@ describe("an Enemy's Attack", () => {
     hold(run, {}, 10);
     expect(onlyEnemy(run).attack?.phase).toBe("windup");
     expect(distance(onlyEnemy(run).position, stoppedAt)).toBeLessThan(0.01);
+  });
+
+  test("stops the Enemy on the tick its Windup starts, even one that gathers and loses speed slowly", () => {
+    const run = startRun({
+      tuning: { ...BITE, enemyAcceleration: 30 },
+      roomTemplate: arena({ x: 4, y: 0 }),
+    });
+
+    let chasedTo = { ...onlyEnemy(run).position };
+    for (let tick = 0; tick < 120 && !onlyEnemy(run).attack; tick++) {
+      chasedTo = { ...onlyEnemy(run).position };
+      hold(run, {}, 1);
+    }
+    expect(onlyEnemy(run).attack?.phase).toBe("windup");
+    expect(distance(onlyEnemy(run).position, chasedTo)).toBeLessThan(0.001);
+
+    hold(run, {}, 19);
+    expect(onlyEnemy(run).attack?.phase).toBe("windup");
+    expect(distance(onlyEnemy(run).position, chasedTo)).toBeLessThan(0.001);
   });
 
   test("goes through Windup, Active Phase and Recovery for the tuning table's durations", () => {
@@ -976,7 +995,7 @@ describe("an Enemy's Attack", () => {
 
   test("is not interrupted when the Enemy is damaged and pushed back", () => {
     const run = startRun({
-      tuning: { ...BITE, enemyAcceleration: 30, heroAttack: SWING.heroAttack },
+      tuning: { ...BITE, enemyAcceleration: 30, heroAttack: SLASH.heroAttack },
       roomTemplate: arena({ x: 1.2, y: 0 }),
     });
 
@@ -991,6 +1010,23 @@ describe("an Enemy's Attack", () => {
       ...ticksOf("recovery", 10),
     ]);
     expect(onlyEnemy(run).health).toBe(30);
+    expect(onlyEnemy(run).position.x).toBeGreaterThan(1.7);
+  });
+
+  test("lets a push received on its last tick carry the Enemy into the Attack that follows", () => {
+    const run = startRun({
+      tuning: { ...BITE, enemyAcceleration: 30, heroAttack: SLASH.heroAttack },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+    // The Hero's Windup of two ticks ends with the Enemy's Recovery: the damage falls on its last tick.
+    hold(run, {}, 20 + 3 + 10 - 3);
+    hold(run, { attack: true, aim: { x: 1, y: 0 } }, 3);
+    expect(onlyEnemy(run).attack?.phase).toBe("recovery");
+    expect(onlyEnemy(run).health).toBe(30);
+
+    hold(run, {}, 10);
+
+    expect(onlyEnemy(run).attack?.phase).toBe("windup");
     expect(onlyEnemy(run).position.x).toBeGreaterThan(1.7);
   });
 
@@ -1614,7 +1650,7 @@ describe("defeat", () => {
 describe("Gold", () => {
   test("is credited for an Enemy on the tick it is defeated, by the tuning table's amount", () => {
     const run = startRun({
-      tuning: { ...SWING, enemyHealth: 20, enemyGold: 7 },
+      tuning: { ...SLASH, enemyHealth: 20, enemyGold: 7 },
       roomTemplate: arena({ x: 2, y: 0 }, { x: -2, y: 0 }),
     });
 
@@ -1628,7 +1664,7 @@ describe("Gold", () => {
   });
 
   test("is not earned by damaging an Enemy that survives", () => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 2, y: 0 }) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena({ x: 2, y: 0 }) });
 
     attackOnce(run, { x: 1, y: 0 });
 
@@ -1661,7 +1697,7 @@ describe("Gold", () => {
 
   test("is still credited for an Enemy defeated on the tick the Hero falls", () => {
     const run = startRun({
-      tuning: { ...BITE, heroAttack: { ...SWING.heroAttack, damage: 50 }, enemyGold: 9 },
+      tuning: { ...BITE, heroAttack: { ...SLASH.heroAttack, damage: 50 }, enemyGold: 9 },
       heroStats: { speed: 6, maxHealth: 15 },
       roomTemplate: arena({ x: 1.2, y: 0 }),
     });
@@ -1716,7 +1752,7 @@ describe("victory", () => {
 
   test("gives way to defeat when the Hero falls on the tick it defeats the last Enemy", () => {
     const run = startRun({
-      tuning: { ...BITE, heroAttack: { ...SWING.heroAttack, damage: 50 } },
+      tuning: { ...BITE, heroAttack: { ...SLASH.heroAttack, damage: 50 } },
       heroStats: { speed: 6, maxHealth: 15 },
       roomTemplate: arena({ x: 1.2, y: 0 }),
     });
@@ -1822,7 +1858,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("damages an Enemy in front of the Hero once its Active Phase starts, not before", () => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 2, y: 0 }) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena({ x: 2, y: 0 }) });
 
     hold(run, { attack: true, aim: { x: 1, y: 0 } }, 2);
     expect(onlyEnemy(run).health).toBe(50);
@@ -1832,7 +1868,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("damages an Enemy at most once, and the next Attack damages it again", () => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 2, y: 0 }) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena({ x: 2, y: 0 }) });
 
     attackOnce(run, { x: 1, y: 0 });
     expect(onlyEnemy(run).health).toBe(30);
@@ -1846,7 +1882,7 @@ describe("the Hero's Attack", () => {
     { where: "beyond its reach", at: { x: 4, y: 0 } },
     { where: "beside the Hero, outside its angle", at: { x: 0, y: 2 } },
   ])("leaves an Enemy $where unharmed", ({ at }) => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena(at) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena(at) });
 
     attackOnce(run, { x: 1, y: 0 });
 
@@ -1855,7 +1891,7 @@ describe("the Hero's Attack", () => {
 
   test("damages every Enemy inside its sector and none outside", () => {
     const run = startRun({
-      tuning: SWING,
+      tuning: SLASH,
       roomTemplate: arena({ x: 2, y: 0 }, { x: 1.5, y: 1.2 }, { x: 1.5, y: -1.2 }, { x: -2, y: 0 }),
     });
 
@@ -1869,7 +1905,7 @@ describe("the Hero's Attack", () => {
     { where: "the edge of its angle", at: { x: 1.147, y: 1.638 } },
     { where: "the end of its reach", at: { x: 3.3, y: 0 } },
   ])("damages an Enemy whose body crosses $where", ({ at }) => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena(at) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena(at) });
 
     attackOnce(run, { x: 1, y: 0 });
 
@@ -1877,7 +1913,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("covers the sector along its own direction", () => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 0, y: -2 }, { x: 2, y: 0 }) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena({ x: 0, y: -2 }, { x: 2, y: 0 }) });
 
     attackOnce(run, { x: 0, y: -1 });
 
@@ -1886,7 +1922,7 @@ describe("the Hero's Attack", () => {
 
   test("pushes a damaged Enemy away from the Hero and leaves the others in place", () => {
     const run = startRun({
-      tuning: { ...SWING, heroAttack: { ...SWING.heroAttack, knockbackImpulse: 6 } },
+      tuning: { ...SLASH, heroAttack: { ...SLASH.heroAttack, knockbackImpulse: 6 } },
       roomTemplate: arena({ x: 0, y: -2 }, { x: 0, y: 2 }),
     });
 
@@ -1900,7 +1936,7 @@ describe("the Hero's Attack", () => {
 
   test("removes an Enemy from the Room on the tick its health reaches zero", () => {
     const run = startRun({
-      tuning: { ...SWING, enemyHealth: 20 },
+      tuning: { ...SLASH, enemyHealth: 20 },
       roomTemplate: arena({ x: 2, y: 0 }, { x: -2, y: 0 }),
     });
     const ids = run.state.enemies.map((enemy) => enemy.id);
@@ -1916,10 +1952,10 @@ describe("the Hero's Attack", () => {
     // Clearing the Room would end the Run: an Enemy out of reach behind the Hero keeps it going.
     const bystander = { x: -10, y: 0 };
     const withEnemy = startRun({
-      tuning: { ...SWING, enemyHealth: 20 },
+      tuning: { ...SLASH, enemyHealth: 20 },
       roomTemplate: arena({ x: 2, y: 0 }, bystander),
     });
-    const alone = startRun({ tuning: SWING, roomTemplate: arena(bystander) });
+    const alone = startRun({ tuning: SLASH, roomTemplate: arena(bystander) });
 
     for (const run of [withEnemy, alone]) {
       attackOnce(run, { x: 1, y: 0 });
@@ -1930,7 +1966,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("chains into a new Attack the tick its Recovery ends while the request is held", () => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 2, y: 0 }) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena({ x: 2, y: 0 }) });
 
     const phases = attackPhasesWhileHolding(run, { attack: true, aim: { x: 1, y: 0 } }, 20);
 
@@ -1950,7 +1986,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("aims each chained Attack along the aim direction of the tick it starts", () => {
-    const run = startRun({ tuning: SWING });
+    const run = startRun({ tuning: SLASH });
 
     hold(run, { attack: true, aim: { x: 1, y: 0 } }, 2 + 3 + 4);
     hold(run, { attack: true, aim: { x: 0, y: -1 } }, 1);
@@ -1960,7 +1996,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("forgets a request released before its Recovery ends", () => {
-    const run = startRun({ tuning: SWING });
+    const run = startRun({ tuning: SLASH });
 
     const phases = [
       ...attackPhasesWhileHolding(run, { attack: true }, 8),
@@ -1971,7 +2007,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("keeps the state plain serializable data while it runs", () => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 2, y: 0 }) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena({ x: 2, y: 0 }) });
 
     hold(run, { attack: true, aim: { x: 1, y: 0 } }, 4);
 
@@ -1979,7 +2015,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("carries the reach and angle of its sector from the tuning table", () => {
-    const run = startRun({ tuning: SWING });
+    const run = startRun({ tuning: SLASH });
 
     hold(run, { attack: true }, 1);
 
@@ -1987,7 +2023,7 @@ describe("the Hero's Attack", () => {
   });
 
   test("marks a damaged Enemy with the tick of the damage", () => {
-    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 2, y: 0 }) });
+    const run = startRun({ tuning: SLASH, roomTemplate: arena({ x: 2, y: 0 }) });
     hold(run, { attack: true, aim: { x: 1, y: 0 } }, 2);
     expect(onlyEnemy(run).lastDamagedTick).toBeNull();
 
@@ -1999,7 +2035,7 @@ describe("the Hero's Attack", () => {
 
   test("is not interrupted when the Hero is damaged", () => {
     const run = startRun({
-      tuning: { ...BITE, heroAttack: { ...SWING.heroAttack, windupTicks: 30 } },
+      tuning: { ...BITE, heroAttack: { ...SLASH.heroAttack, windupTicks: 30 } },
       roomTemplate: arena({ x: 1.2, y: 0 }),
     });
 
@@ -2067,7 +2103,7 @@ describe("the Dash", () => {
     { phase: "recovery", ticksIntoAttack: 6 },
   ] as const)("cancels the Hero's Attack in its $phase", ({ phase, ticksIntoAttack }) => {
     const run = startRun({
-      tuning: { ...SWING, dash: LEAP.dash },
+      tuning: { ...SLASH, dash: LEAP.dash },
       roomTemplate: arena({ x: 2, y: 0 }),
     });
     hold(run, { attack: true, aim: { x: 1, y: 0 } }, 1);
@@ -2085,7 +2121,7 @@ describe("the Dash", () => {
   });
 
   test("out of an Attack goes along the aim direction of its own tick, not the Attack's", () => {
-    const run = startRun({ tuning: { ...SWING, dash: LEAP.dash }, roomTemplate: arena() });
+    const run = startRun({ tuning: { ...SLASH, dash: LEAP.dash }, roomTemplate: arena() });
     hold(run, { attack: true, aim: { x: 1, y: 0 } }, 3);
 
     hold(run, { dash: true, aim: { x: 0, y: 1 } }, 1);
@@ -2096,7 +2132,7 @@ describe("the Dash", () => {
   });
 
   test("holds back a requested Attack until it is over", () => {
-    const run = startRun({ tuning: { ...SWING, dash: LEAP.dash }, roomTemplate: arena() });
+    const run = startRun({ tuning: { ...SLASH, dash: LEAP.dash }, roomTemplate: arena() });
 
     const phases = [
       ...attackPhasesWhileHolding(run, { dash: true, attack: true, move: { x: 1, y: 0 } }, 1),
@@ -2165,7 +2201,7 @@ describe("the Dash", () => {
   });
 
   test("leaves the Hero's Attack running when its request is ignored", () => {
-    const run = startRun({ tuning: { ...SWING, dash: LEAP.dash }, roomTemplate: arena() });
+    const run = startRun({ tuning: { ...SLASH, dash: LEAP.dash }, roomTemplate: arena() });
     hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
     hold(run, {}, 5);
 
