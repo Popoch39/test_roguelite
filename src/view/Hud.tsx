@@ -57,6 +57,15 @@ const RUN_SEED_STYLE: CSSProperties = {
   color: "#9aa5b4",
 };
 
+const GOLD_STYLE: CSSProperties = {
+  position: "fixed",
+  top: 16,
+  right: 16,
+  font: "600 18px system-ui, sans-serif",
+  color: "#e8a33d",
+  pointerEvents: "none",
+};
+
 const RUN_END_STYLE: CSSProperties = {
   position: "fixed",
   inset: 0,
@@ -72,7 +81,7 @@ const RUN_END_STYLE: CSSProperties = {
 
 const OUTCOME_STYLE: CSSProperties = { margin: 0, font: "700 48px system-ui, sans-serif" };
 
-const NEW_RUN_STYLE: CSSProperties = {
+const LEAVE_RUN_STYLE: CSSProperties = {
   padding: "10px 24px",
   font: "600 16px system-ui, sans-serif",
   color: "#14181f",
@@ -86,7 +95,7 @@ const OUTCOME_TEXT: Record<RunOutcome, { title: string; detail: string }> = {
   defeat: { title: "Defeat", detail: "The Hero has fallen." },
 };
 
-export function Hud({ onNewRun }: { onNewRun: () => void }) {
+export function Hud({ onLeaveRun }: { onLeaveRun: () => void }) {
   const outcome = useHudStore((hud) => hud.outcome);
 
   return (
@@ -94,7 +103,8 @@ export function Hud({ onNewRun }: { onNewRun: () => void }) {
       <HeroHealth />
       <DashReadiness />
       <RunProgress />
-      {outcome && <RunEnd outcome={outcome} onNewRun={onNewRun} />}
+      <GoldEarned />
+      {outcome && <RunEnd outcome={outcome} onLeaveRun={onLeaveRun} />}
     </>
   );
 }
@@ -137,15 +147,23 @@ function RunProgress() {
   );
 }
 
-function RunEnd({ outcome, onNewRun }: { outcome: RunOutcome; onNewRun: () => void }) {
+function GoldEarned() {
+  const goldEarned = useHudStore((hud) => hud.goldEarned);
+
+  return <div style={GOLD_STYLE}>Gold {goldEarned}</div>;
+}
+
+function RunEnd({ outcome, onLeaveRun }: { outcome: RunOutcome; onLeaveRun: () => void }) {
+  const goldEarned = useHudStore((hud) => hud.goldEarned);
   const { title, detail } = OUTCOME_TEXT[outcome];
 
   return (
     <div style={RUN_END_STYLE}>
       <h1 style={OUTCOME_STYLE}>{title}</h1>
       <p style={{ margin: 0 }}>{detail}</p>
-      <button type="button" style={NEW_RUN_STYLE} onClick={onNewRun}>
-        Start a new Run
+      <p style={{ margin: 0 }}>Gold earned: {goldEarned}</p>
+      <button type="button" style={LEAVE_RUN_STYLE} onClick={onLeaveRun}>
+        Continue
       </button>
     </div>
   );

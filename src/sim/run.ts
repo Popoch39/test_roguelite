@@ -71,6 +71,7 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
     roomIndex: 0,
     // Nothing is loaded yet: entering the first Room fills in the Room, the Hero's position and the Enemies.
     room: { width: 0, height: 0, walls: [], pillars: [], colliderHandles: [] },
+    goldEarned: 0,
     nextId: HERO_ID + 1,
     heroes: [
       {
@@ -126,6 +127,7 @@ export function step(run: Run, commands: readonly Command[]): void {
   resolveHeroAttacks(state, world, run[tuningTable]);
   resolveEnemyAttacks(state, world, run[tuningTable]);
   const enemiesDefeated = removeDefeatedEnemies(state, world);
+  state.goldEarned += enemiesDefeated * run[tuningTable].enemyGold;
   endRunOnDefeat(state);
   leaveClearedRoom(state, world, run[tuningTable], enemiesDefeated);
   state.tick += 1;
