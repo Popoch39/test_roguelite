@@ -51,7 +51,12 @@ function distance(from: Vec2, to: Vec2): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
-const IDLE: Omit<Command, "heroId"> = { move: { x: 0, y: 0 }, aim: { x: 0, y: 0 }, attack: false };
+const IDLE: Omit<Command, "heroId"> = {
+  move: { x: 0, y: 0 },
+  aim: { x: 0, y: 0 },
+  attack: false,
+  dash: false,
+};
 
 function hold(run: Run, intent: Partial<typeof IDLE>, ticks: number): void {
   const heroId = onlyHero(run).id;
@@ -129,6 +134,13 @@ const BITE: Tuning = {
   },
 };
 
+// The same Enemy with an Attack that covers the whole Room, so that no Dash leaves its sector.
+const ENGULF: Tuning = {
+  ...BITE,
+  enemyAttack: { ...BITE.enemyAttack, reach: 60, angle: 2 * Math.PI },
+  dash: { durationTicks: 3, speed: 20, cooldownTicks: 20 },
+};
+
 /** Enemies that chase but never start an Attack. */
 function neverAttacking(tuning: Tuning): Tuning {
   return { ...tuning, enemyAttack: { ...tuning.enemyAttack, triggerRange: 0 } };
@@ -151,6 +163,13 @@ function enemyAttackPhasesWhileHolding(
 function ticksOf(phase: AttackPhase | null, count: number): (AttackPhase | null)[] {
   return Array.from({ length: count }, () => phase);
 }
+
+function withDash(dash: Partial<Tuning["dash"]>): Tuning {
+  return { ...DEFAULT_TUNING, dash: { ...DEFAULT_TUNING.dash, ...dash } };
+}
+
+// A Dash of 2 units: 6 ticks at 20 units per second, ready again 20 ticks after it starts.
+const LEAP: Tuning = withDash({ durationTicks: 6, speed: 20, cooldownTicks: 20 });
 
 /** The Hero against three Enemies of the default tuning, for 225 ticks of the same commands. */
 function playFight(): Run {
@@ -1065,5 +1084,237 @@ describe("the Hero's Attack", () => {
     expect(attackPhasesWhileHolding(run, { move: { x: 1, y: 0 } }, 5)).toEqual(
       Array.from({ length: 5 }, () => null),
     );
+  });
+});
+
+describe("the Dash", () => {
+  test("carries the Hero along the movement direction, at the tuning table's speed and for its duration", () => {
+    const run = startRun({ tuning: LEAP, roomTemplate: arena() });
+
+    hold(run, { dash: true, move: { x: 0, y: 3 }, aim: { x: 1, y: 0 } }, 1);
+    hold(run, {}, 5);
+    expect(onlyHero(run).position.x).toBeCloseTo(0, 2);
+    expect(onlyHero(run).position.y).toBeCloseTo(2, 2);
+
+    hold(run, {}, 10);
+    expect(onlyHero(run).position.x).toBeCloseTo(0, 2);
+    expect(onlyHero(run).position.y).toBeCloseTo(2, 2);
+  });
+
+  test("goes along the aim direction when the movement direction is zero", () => {
+    const run = startRun({ tuning: LEAP, roomTemplate: arena() });
+
+    hold(run, { dash: true, aim: { x: -4, y: 0 } }, 1);
+    hold(run, {}, 5);
+
+    expect(onlyHero(run).position.x).toBeCloseTo(-2, 2);
+    expect(onlyHero(run).position.y).toBeCloseTo(0, 2);
+  });
+
+  test("goes the way the Hero faces when the command gives neither direction", () => {
+    const run = startRun({ tuning: LEAP, roomTemplate: arena() });
+    hold(run, { aim: { x: 0, y: -1 } }, 1);
+
+    hold(run, { dash: true }, 1);
+    hold(run, {}, 5);
+
+    expect(onlyHero(run).position.x).toBeCloseTo(0, 2);
+    expect(onlyHero(run).position.y).toBeCloseTo(-2, 2);
+  });
+
+  test.each([
+    { phase: "windup", ticksIntoAttack: 1 },
+    { phase: "active", ticksIntoAttack: 3 },
+    { phase: "recovery", ticksIntoAttack: 6 },
+  ] as const)("cancels the Hero's Attack in its $phase", ({ phase, ticksIntoAttack }) => {
+    const run = startRun({
+      tuning: { ...SWING, dash: LEAP.dash },
+      roomTemplate: arena({ x: 2, y: 0 }),
+    });
+    hold(run, { attack: true, aim: { x: 1, y: 0 } }, 1);
+    hold(run, {}, ticksIntoAttack - 1);
+    expect(onlyHero(run).attack?.phase).toBe(phase);
+    const enemyHealth = onlyEnemy(run).health;
+
+    hold(run, { dash: true, move: { x: -1, y: 0 } }, 1);
+    expect(onlyHero(run).attack).toBeNull();
+
+    hold(run, {}, 5);
+    expect(onlyHero(run).attack).toBeNull();
+    expect(onlyHero(run).position.x).toBeCloseTo(-2, 2);
+    expect(onlyEnemy(run).health).toBe(enemyHealth);
+  });
+
+  test("out of an Attack goes along the aim direction of its own tick, not the Attack's", () => {
+    const run = startRun({ tuning: { ...SWING, dash: LEAP.dash }, roomTemplate: arena() });
+    hold(run, { attack: true, aim: { x: 1, y: 0 } }, 3);
+
+    hold(run, { dash: true, aim: { x: 0, y: 1 } }, 1);
+    hold(run, {}, 5);
+
+    expect(onlyHero(run).position.x).toBeCloseTo(0, 2);
+    expect(onlyHero(run).position.y).toBeCloseTo(2, 2);
+  });
+
+  test("holds back a requested Attack until it is over", () => {
+    const run = startRun({ tuning: { ...SWING, dash: LEAP.dash }, roomTemplate: arena() });
+
+    const phases = [
+      ...attackPhasesWhileHolding(run, { dash: true, attack: true, move: { x: 1, y: 0 } }, 1),
+      ...attackPhasesWhileHolding(run, { attack: true }, 7),
+    ];
+
+    expect(phases).toEqual([...ticksOf(null, 6), "windup", "windup"]);
+    expect(onlyHero(run).position.x).toBeCloseTo(2, 2);
+  });
+
+  test("spares the Hero an Enemy's Active Phase that it lasts through", () => {
+    const run = startRun({ tuning: ENGULF, roomTemplate: arena({ x: 1.2, y: 0 }) });
+    hold(run, {}, 20);
+
+    // Three ticks of Dash over the three ticks of the Active Phase.
+    hold(run, { dash: true, move: { x: -1, y: 0 } }, 1);
+    hold(run, {}, 2);
+    expect(onlyEnemy(run).attack?.phase).toBe("active");
+
+    hold(run, {}, 10);
+    expect(onlyHero(run).health).toBe(100);
+    expect(onlyHero(run).lastDamagedTick).toBeNull();
+  });
+
+  test("leaves the Hero open to damage on the tick after its last", () => {
+    const run = startRun({ tuning: ENGULF, roomTemplate: arena({ x: 1.2, y: 0 }) });
+    hold(run, {}, 19);
+
+    // Started one tick early: the Dash ends with one tick of the Active Phase still to come.
+    hold(run, { dash: true, move: { x: -1, y: 0 } }, 1);
+    hold(run, {}, 2);
+    expect(onlyEnemy(run).attack?.phase).toBe("active");
+    expect(onlyHero(run).health).toBe(100);
+
+    hold(run, {}, 1);
+    expect(onlyEnemy(run).attack?.phase).toBe("active");
+    expect(onlyHero(run).health).toBe(85);
+  });
+
+  test("ignores a request made before its cooldown has elapsed, counted from its start", () => {
+    const run = startRun({ tuning: LEAP, roomTemplate: arena() });
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    hold(run, {}, 18);
+
+    // The 19th tick after the one the Dash started on, with a cooldown of 20.
+    hold(run, { dash: true, aim: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dash).toBeNull();
+
+    hold(run, {}, 10);
+    expect(onlyHero(run).position.x).toBeCloseTo(2, 2);
+  });
+
+  test("can be made again once its cooldown has elapsed", () => {
+    const run = startRun({ tuning: LEAP, roomTemplate: arena() });
+    expect(onlyHero(run).dashReadyTick).toBe(0);
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dashReadyTick).toBe(20);
+    hold(run, {}, 19);
+    expect(run.state.tick).toBe(20);
+
+    hold(run, { dash: true, aim: { x: 1, y: 0 } }, 1);
+    hold(run, {}, 5);
+
+    expect(onlyHero(run).position.x).toBeCloseTo(4, 2);
+    expect(onlyHero(run).dashReadyTick).toBe(40);
+  });
+
+  test("leaves the Hero's Attack running when its request is ignored", () => {
+    const run = startRun({ tuning: { ...SWING, dash: LEAP.dash }, roomTemplate: arena() });
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    hold(run, {}, 5);
+
+    const phases = [
+      ...attackPhasesWhileHolding(run, { attack: true }, 1),
+      ...attackPhasesWhileHolding(run, { dash: true, move: { x: 1, y: 0 } }, 1),
+      ...attackPhasesWhileHolding(run, {}, 1),
+    ];
+
+    expect(phases).toEqual(["windup", "windup", "active"]);
+    expect(onlyHero(run).position.x).toBeCloseTo(2, 2);
+  });
+
+  // Inner faces at x = ±10; the Dash would carry the Hero 15 units.
+  test("is stopped by a wall, tick after tick", () => {
+    const run = startRun({
+      tuning: withDash({ durationTicks: 50, speed: 18 }),
+      roomTemplate: { width: 20, height: 12, entryPoint: { x: 0, y: 0 }, spawnPoints: [] },
+    });
+    const hero = onlyHero(run);
+
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    for (let tick = 1; tick < 50; tick++) {
+      hold(run, {}, 1);
+
+      expect(hero.position.x + hero.radius).toBeLessThanOrEqual(10 + CONTACT_SLACK);
+    }
+
+    expect(hero.position.x + hero.radius).toBeGreaterThan(10 - CONTACT_SLACK);
+  });
+
+  test("does not carry the Hero through an Enemy", () => {
+    const run = startRun({
+      tuning: standing(withDash({ durationTicks: 30 })),
+      roomTemplate: arena({ x: 2, y: 0 }),
+    });
+    const hero = onlyHero(run);
+    const enemy = onlyEnemy(run);
+
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    for (let tick = 1; tick < 30; tick++) {
+      hold(run, {}, 1);
+
+      expect(enemy.position.x - hero.position.x).toBeGreaterThan(
+        hero.radius + enemy.radius - CONTACT_SLACK,
+      );
+    }
+
+    // The Enemy was pushed along rather than passed.
+    expect(enemy.position.x).toBeGreaterThan(3);
+  });
+
+  test("is not made once the Run has ended", () => {
+    const run = startRun({
+      tuning: BITE,
+      heroStats: { speed: 6, maxHealth: 10 },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+    hold(run, {}, 20 + 1);
+    expect(run.state.phase).toBe("ended");
+    const frozen = structuredClone(run.state);
+
+    hold(run, { dash: true, move: { x: -1, y: 0 } }, 5);
+
+    expect(run.state).toEqual(frozen);
+  });
+
+  test("lasts 10 ticks, covers 3 units and is ready again 45 ticks after its start with the default tuning", () => {
+    const run = startRun({ roomTemplate: arena() });
+
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    let dashTicks = 1;
+    for (let tick = 1; tick < 30; tick++) {
+      hold(run, {}, 1);
+      if (onlyHero(run).dash) dashTicks += 1;
+    }
+
+    expect(dashTicks).toBe(10);
+    expect(onlyHero(run).position.x).toBeCloseTo(3, 2);
+    expect(onlyHero(run).dashReadyTick).toBe(45);
+  });
+
+  test("keeps the state plain serializable data while it lasts", () => {
+    const run = startRun({ roomTemplate: arena() });
+
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 3);
+
+    expect(onlyHero(run).dash).not.toBeNull();
+    expect(JSON.parse(JSON.stringify(run.state))).toStrictEqual(run.state);
   });
 });

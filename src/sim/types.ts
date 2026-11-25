@@ -25,6 +25,13 @@ export interface Attack {
   damagedIds: number[];
 }
 
+export interface Dash {
+  /** Ticks since the Dash started; 0 on the tick it starts. */
+  elapsedTicks: number;
+  /** Unit vector, fixed when the Dash starts. */
+  direction: Vec2;
+}
+
 export interface Hero {
   id: number;
   position: Vec2;
@@ -37,6 +44,10 @@ export interface Hero {
   lastDamagedTick: number | null;
   /** Null while the Hero is free to act. */
   attack: Attack | null;
+  /** Null while the Hero is not dashing. */
+  dash: Dash | null;
+  /** The first tick on which a Dash request is accepted again. */
+  dashReadyTick: number;
   bodyHandle: number;
 }
 
@@ -69,6 +80,8 @@ export interface Command {
   aim: Vec2;
   /** Level-triggered: true for as long as the Player holds the Attack input. */
   attack: boolean;
+  /** Edge-triggered by the input layer: true on one tick per press of the Dash input. */
+  dash: boolean;
 }
 
 export interface Wall {

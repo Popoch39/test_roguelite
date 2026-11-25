@@ -21,9 +21,18 @@ export interface EnemyAttackTuning extends AttackTuning {
   triggerRange: number;
 }
 
+export interface DashTuning {
+  durationTicks: number;
+  /** Units per second. */
+  speed: number;
+  /** Counted from the tick the Dash starts. */
+  cooldownTicks: number;
+}
+
 export interface Tuning {
   heroStats: HeroStats;
   heroAttack: HeroAttackTuning;
+  dash: DashTuning;
   heroRadius: number;
   enemyHealth: number;
   enemyRadius: number;
@@ -49,6 +58,7 @@ export const DEFAULT_TUNING: Tuning = {
     angle: Math.PI * 0.6,
     knockbackImpulse: 6,
   },
+  dash: { durationTicks: 10, speed: 18, cooldownTicks: 45 },
   heroRadius: 0.5,
   enemyHealth: 50,
   enemyRadius: 0.5,

@@ -5,6 +5,7 @@ import type { RunOutcome } from "../sim";
 export interface HudState {
   heroHealth: number;
   heroMaxHealth: number;
+  dashReady: boolean;
   /** Null while the Run is still being played. */
   outcome: RunOutcome | null;
 }
@@ -12,5 +13,6 @@ export interface HudState {
 export const useHudStore = create<HudState>(() => ({
   heroHealth: 0,
   heroMaxHealth: 0,
+  dashReady: false,
   outcome: null,
 }));
