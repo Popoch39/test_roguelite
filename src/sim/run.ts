@@ -1,11 +1,12 @@
 import * as RAPIER from "@dimforge/rapier2d-compat";
 import { advanceAttack, attackSector, charactersInSector, startAttack } from "./attack";
+import { advanceDash, startDash } from "./dash";
 import { actEnemies, spawnEnemy } from "./enemy";
 import { drawSequence, drawSubset } from "./random";
 import { loadRoom, unloadRoom } from "./room";
 import type { Tuning } from "./tuning";
 import type { Command, HeroStats, RoomTemplate, RunState } from "./types";
-import { normalize } from "./vec";
+import { normalize, scale } from "./vec";
 
 // Not re-exported from the public interface, so only the simulation can reach the physics world.
 export const physicsWorld: unique symbol = Symbol("physicsWorld");
@@ -81,6 +82,8 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
         health: heroStats.maxHealth,
         lastDamagedTick: null,
         attack: null,
+        dash: null,
+        dashReadyTick: 0,
         bodyHandle: body.handle,
       },
     ],
@@ -136,18 +139,28 @@ function actHeroes(
 ): void {
   for (const hero of state.heroes) {
     const command = commands.find(({ heroId }) => heroId === hero.id);
+    const move = normalize(command?.move ?? { x: 0, y: 0 });
     if (hero.attack) hero.attack = advanceAttack(hero.attack, tuning.heroAttack);
+    if (hero.dash) hero.dash = advanceDash(hero.dash, tuning.dash);
+    const startsDash = command?.dash === true && state.tick >= hero.dashReadyTick;
+    // Before the facing is read: a Dash out of an Attack follows this tick's aim, not the Attack's.
+    if (startsDash) hero.attack = null;
     if (!hero.attack) {
       const aim = normalize(command?.aim ?? { x: 0, y: 0 });
       if (aim.x !== 0 || aim.y !== 0) hero.facing = aim;
-      if (command?.attack) hero.attack = startAttack(hero.facing, tuning.heroAttack);
+    }
+    if (startsDash) {
+      hero.dash = startDash(move.x !== 0 || move.y !== 0 ? move : hero.facing, tuning.dash);
+      hero.dashReadyTick = state.tick + tuning.dash.cooldownTicks;
+    }
+    if (!hero.attack && !hero.dash && command?.attack) {
+      hero.attack = startAttack(hero.facing, tuning.heroAttack);
     }
 
-    const speed = hero.attack ? 0 : hero.stats.speed;
-    const direction = normalize(command?.move ?? { x: 0, y: 0 });
-    world
-      .getRigidBody(hero.bodyHandle)
-      .setLinvel({ x: direction.x * speed, y: direction.y * speed }, true);
+    const velocity = hero.dash
+      ? scale(hero.dash.direction, tuning.dash.speed)
+      : scale(move, hero.attack ? 0 : hero.stats.speed);
+    world.getRigidBody(hero.bodyHandle).setLinvel(velocity, true);
   }
 }
 
@@ -180,6 +193,8 @@ function resolveEnemyAttacks(state: RunState, world: RAPIER.World, tuning: Tunin
     if (attack?.phase !== "active") continue;
     const sector = attackSector(enemy.position, attack);
     for (const hero of charactersInSector(world, state.heroes, sector)) {
+      // Not recorded as damaged either: a Dash that ends inside the sector leaves the Hero open to the rest of the Active Phase.
+      if (hero.dash) continue;
       if (attack.damagedIds.includes(hero.id)) continue;
       attack.damagedIds.push(hero.id);
       hero.health = Math.max(hero.health - tuning.enemyAttack.damage, 0);

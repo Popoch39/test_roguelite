@@ -5,6 +5,7 @@ import type { RunOutcome } from "../sim";
 export interface HudState {
   heroHealth: number;
   heroMaxHealth: number;
+  dashReady: boolean;
   /** Position of the current Room in the Run, from 1. */
   roomNumber: number;
   roomCount: number;
@@ -16,6 +17,7 @@ export interface HudState {
 export const useHudStore = create<HudState>(() => ({
   heroHealth: 0,
   heroMaxHealth: 0,
+  dashReady: false,
   roomNumber: 0,
   roomCount: 0,
   runSeed: 0,

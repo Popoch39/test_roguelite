@@ -10,6 +10,7 @@ export type {
   Attack,
   AttackPhase,
   Command,
+  Dash,
   Enemy,
   Hero,
   HeroStats,

@@ -7,6 +7,7 @@ export function syncHud(state: RunState): void {
   const next: HudState = {
     heroHealth: hero?.health ?? 0,
     heroMaxHealth: hero?.stats.maxHealth ?? 0,
+    dashReady: hero !== undefined && state.tick >= hero.dashReadyTick,
     roomNumber: state.roomIndex + 1,
     roomCount: state.roomTemplates.length,
     runSeed: state.seed,
@@ -16,6 +17,7 @@ export function syncHud(state: RunState): void {
   if (
     next.heroHealth !== shown.heroHealth ||
     next.heroMaxHealth !== shown.heroMaxHealth ||
+    next.dashReady !== shown.dashReady ||
     next.roomNumber !== shown.roomNumber ||
     next.roomCount !== shown.roomCount ||
     next.runSeed !== shown.runSeed ||

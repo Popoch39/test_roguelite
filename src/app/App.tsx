@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createRun, DEFAULT_ROOM_TEMPLATES, DEFAULT_TUNING, initSimulation } from "../sim";
 import { GameView } from "../view/GameView";
 import { Hud } from "../view/Hud";
-import { listenToMovementKeys } from "../view/keyboard";
+import { listenToDashKey, listenToMovementKeys } from "../view/keyboard";
 import { listenToMouse, type Mouse } from "../view/mouse";
 import { syncHud } from "./hud";
 import { createLoop, type Loop } from "./loop";
@@ -27,6 +27,7 @@ export function App() {
       if (cancelled) return;
 
       const keys = listenToMovementKeys(window);
+      const dashKey = listenToDashKey(window);
       const mouse = listenToMouse(window);
       let loop: Loop | null = null;
       let runNumber = 0;
@@ -40,13 +41,17 @@ export function App() {
         });
         const started = createLoop(
           run,
-          () =>
-            run.state.heroes.map((hero) => ({
+          () => {
+            // Read once per tick: the press is spent on the first command that carries it.
+            const dash = dashKey.takeRequest();
+            return run.state.heroes.map((hero) => ({
               heroId: hero.id,
               move: keys.read(),
               aim: mouse.aimFrom(hero.position),
               attack: mouse.attackHeld(),
-            })),
+              dash,
+            }));
+          },
           syncHud,
         );
         syncHud(run.state);
@@ -60,6 +65,7 @@ export function App() {
       stop = () => {
         document.removeEventListener("visibilitychange", onVisibilityChange);
         keys.dispose();
+        dashKey.dispose();
         mouse.dispose();
       };
 
