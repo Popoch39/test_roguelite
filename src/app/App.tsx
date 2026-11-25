@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { createRun, DEFAULT_ROOM_TEMPLATE, DEFAULT_TUNING, initSimulation } from "../sim";
 import { GameView } from "../view/GameView";
 import { listenToMovementKeys } from "../view/keyboard";
+import { listenToMouse, type Mouse } from "../view/mouse";
 import { createLoop, type Loop } from "./loop";
 
 export function App() {
-  const [loop, setLoop] = useState<Loop | null>(null);
+  const [running, setRunning] = useState<{ loop: Loop; mouse: Mouse } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,18 +22,25 @@ export function App() {
         roomTemplate: DEFAULT_ROOM_TEMPLATE,
       });
       const keys = listenToMovementKeys(window);
-      const runLoop = createLoop(run, () =>
-        run.state.heroes.map((hero) => ({ heroId: hero.id, move: keys.read() })),
+      const mouse = listenToMouse(window);
+      const loop = createLoop(run, () =>
+        run.state.heroes.map((hero) => ({
+          heroId: hero.id,
+          move: keys.read(),
+          aim: mouse.aimFrom(hero.position),
+          attack: mouse.attackHeld(),
+        })),
       );
 
-      const onVisibilityChange = () => (document.hidden ? runLoop.suspend() : runLoop.resume());
+      const onVisibilityChange = () => (document.hidden ? loop.suspend() : loop.resume());
       document.addEventListener("visibilitychange", onVisibilityChange);
       stop = () => {
         document.removeEventListener("visibilitychange", onVisibilityChange);
         keys.dispose();
+        mouse.dispose();
       };
 
-      setLoop(runLoop);
+      setRunning({ loop, mouse });
     });
 
     return () => {
@@ -41,5 +49,5 @@ export function App() {
     };
   }, []);
 
-  return loop && <GameView source={loop} />;
+  return running && <GameView source={running.loop} mouse={running.mouse} />;
 }

@@ -1,16 +1,20 @@
 import { Canvas } from "@react-three/fiber";
+import { CursorOnGround } from "./CursorOnGround";
+import { EnemyMeshes } from "./EnemyMeshes";
 import { FollowCamera, CAMERA_FOV } from "./FollowCamera";
 import type { FrameSource } from "./frame";
 import { HeroMesh } from "./HeroMesh";
+import type { Mouse } from "./mouse";
 import { RoomMesh } from "./RoomMesh";
 import { SimulationClock } from "./SimulationClock";
 
-export function GameView({ source }: { source: FrameSource }) {
+export function GameView({ source, mouse }: { source: FrameSource; mouse: Mouse }) {
   const { room, heroes } = source.frame.current;
   const followed = heroes[0];
 
   return (
     <Canvas camera={{ fov: CAMERA_FOV, near: 1, far: 200 }}>
+      <CursorOnGround mouse={mouse} />
       <SimulationClock source={source} />
       <color attach="background" args={["#14181f"]} />
       <ambientLight intensity={1.2} />
@@ -19,6 +23,7 @@ export function GameView({ source }: { source: FrameSource }) {
       {heroes.map((hero) => (
         <HeroMesh key={hero.id} hero={hero} source={source} />
       ))}
+      <EnemyMeshes source={source} />
       {followed && <FollowCamera heroId={followed.id} source={source} />}
     </Canvas>
   );
