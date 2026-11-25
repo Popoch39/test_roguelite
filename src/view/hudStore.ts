@@ -10,6 +10,7 @@ export interface HudState {
   roomNumber: number;
   roomCount: number;
   runSeed: number;
+  goldEarned: number;
   /** Null while the Run is still being played. */
   outcome: RunOutcome | null;
 }
@@ -21,5 +22,6 @@ export const useHudStore = create<HudState>(() => ({
   roomNumber: 0,
   roomCount: 0,
   runSeed: 0,
+  goldEarned: 0,
   outcome: null,
 }));

@@ -1211,6 +1211,79 @@ describe("defeat", () => {
   });
 });
 
+describe("Gold", () => {
+  test("is credited for an Enemy on the tick it is defeated, by the tuning table's amount", () => {
+    const run = startRun({
+      tuning: { ...SWING, enemyHealth: 20, enemyGold: 7 },
+      roomTemplate: arena({ x: 2, y: 0 }, { x: -2, y: 0 }),
+    });
+
+    hold(run, { attack: true, aim: { x: 1, y: 0 } }, 2);
+    expect(run.state.enemies).toHaveLength(2);
+    expect(run.state.goldEarned).toBe(0);
+
+    hold(run, {}, 1);
+    expect(run.state.enemies).toHaveLength(1);
+    expect(run.state.goldEarned).toBe(7);
+  });
+
+  test("is not earned by damaging an Enemy that survives", () => {
+    const run = startRun({ tuning: SWING, roomTemplate: arena({ x: 2, y: 0 }) });
+
+    attackOnce(run, { x: 1, y: 0 });
+
+    expect(onlyEnemy(run).health).toBe(30);
+    expect(run.state.goldEarned).toBe(0);
+  });
+
+  test("is credited for every Enemy defeated on the same tick", () => {
+    const run = startRun({
+      tuning: { ...SWEEP, enemyGold: 4 },
+      roomTemplate: arena({ x: 5, y: 0 }, { x: -5, y: 0 }, { x: 0, y: 5 }),
+    });
+
+    clearRoom(run);
+
+    expect(run.state.goldEarned).toBe(12);
+  });
+
+  test("adds up from Room to Room", () => {
+    const run = startRunOfRooms({ tuning: { ...SWEEP, enemyGold: 3 } });
+
+    const tallies = SWEEP.enemiesPerRoom.map(() => {
+      clearRoom(run);
+      return run.state.goldEarned;
+    });
+
+    // Rooms of 2, 4 and 5 Enemies.
+    expect(tallies).toEqual([6, 18, 33]);
+  });
+
+  test("is still credited for an Enemy defeated on the tick the Hero falls", () => {
+    const run = startRun({
+      tuning: { ...BITE, heroAttack: { ...SWING.heroAttack, damage: 50 }, enemyGold: 9 },
+      heroStats: { speed: 6, maxHealth: 15 },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+
+    // The Enemy's Active Phase starts on tick 21: the Hero's two-tick Windup is timed to end with it.
+    hold(run, {}, 18);
+    hold(run, { attack: true, aim: { x: 1, y: 0 } }, 3);
+
+    expect(run.state.outcome).toBe("defeat");
+    expect(run.state.goldEarned).toBe(9);
+  });
+
+  test("is 5 per Enemy with the default tuning: 75 for a Run won", () => {
+    const run = startDefaultRun(1);
+
+    while (run.state.phase === "combat") clearRoom(run);
+
+    expect(run.state.outcome).toBe("victory");
+    expect(run.state.goldEarned).toBe(75);
+  });
+});
+
 describe("victory", () => {
   test("ends the Run the tick the last Enemy of the last Room is defeated, not before", () => {
     const run = startRunOfRooms();

@@ -121,6 +121,8 @@ export interface RunState {
   /** Position of the current Room in the Run, from 0. */
   roomIndex: number;
   room: Room;
+  /** Gold of the Enemies defeated so far in the Run. */
+  goldEarned: number;
   /** The identifier the next character to appear will get: none is ever given twice in a Run. */
   nextId: number;
   heroes: Hero[];
