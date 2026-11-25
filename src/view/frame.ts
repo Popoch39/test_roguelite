@@ -16,6 +16,13 @@ export interface FrameSource {
   colliderOutlines(): LineSegment[];
 }
 
+const FLASH_TICKS = 6;
+
+/** Whether a character last damaged on that tick is still to be drawn flashing. */
+export function isFlashing(frame: Frame, lastDamagedTick: number | null): boolean {
+  return lastDamagedTick !== null && frame.current.tick - lastDamagedTick <= FLASH_TICKS;
+}
+
 /** Writes the Hero's interpolated position into `target`, mapping simulation (x, y) to the ground plane (x, 0, z). */
 export function heroGroundPosition(frame: Frame, heroId: number, target: Vector3): Vector3 {
   return groundPosition(frame.previous.heroes, frame.current.heroes, heroId, frame.alpha, target);

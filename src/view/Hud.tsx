@@ -1,0 +1,91 @@
+import type { CSSProperties } from "react";
+import type { RunOutcome } from "../sim";
+import { useHudStore } from "./hudStore";
+
+const HEALTH_BAR_WIDTH = 220;
+
+const HEALTH_STYLE: CSSProperties = {
+  position: "fixed",
+  left: 16,
+  bottom: 16,
+  width: HEALTH_BAR_WIDTH,
+  font: "600 14px system-ui, sans-serif",
+  color: "#f2f4f8",
+  // The canvas below must keep receiving the cursor and the Attack button.
+  pointerEvents: "none",
+};
+
+const HEALTH_TRACK_STYLE: CSSProperties = {
+  height: 12,
+  marginTop: 4,
+  background: "rgba(16, 19, 26, 0.8)",
+  border: "1px solid #5b6675",
+};
+
+const RUN_END_STYLE: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 16,
+  font: "16px system-ui, sans-serif",
+  color: "#f2f4f8",
+  background: "rgba(10, 12, 16, 0.72)",
+};
+
+const OUTCOME_STYLE: CSSProperties = { margin: 0, font: "700 48px system-ui, sans-serif" };
+
+const NEW_RUN_STYLE: CSSProperties = {
+  padding: "10px 24px",
+  font: "600 16px system-ui, sans-serif",
+  color: "#14181f",
+  background: "#e8a33d",
+  border: "none",
+  cursor: "pointer",
+};
+
+const OUTCOME_TEXT: Record<RunOutcome, { title: string; detail: string }> = {
+  defeat: { title: "Defeat", detail: "The Hero has fallen." },
+};
+
+export function Hud({ onNewRun }: { onNewRun: () => void }) {
+  const outcome = useHudStore((hud) => hud.outcome);
+
+  return (
+    <>
+      <HeroHealth />
+      {outcome && <RunEnd outcome={outcome} onNewRun={onNewRun} />}
+    </>
+  );
+}
+
+function HeroHealth() {
+  const health = useHudStore((hud) => hud.heroHealth);
+  const maxHealth = useHudStore((hud) => hud.heroMaxHealth);
+  const share = maxHealth > 0 ? health / maxHealth : 0;
+
+  return (
+    <div style={HEALTH_STYLE}>
+      Health {health} / {maxHealth}
+      <div style={HEALTH_TRACK_STYLE}>
+        <div style={{ width: `${share * 100}%`, height: "100%", background: "#7bd66f" }} />
+      </div>
+    </div>
+  );
+}
+
+function RunEnd({ outcome, onNewRun }: { outcome: RunOutcome; onNewRun: () => void }) {
+  const { title, detail } = OUTCOME_TEXT[outcome];
+
+  return (
+    <div style={RUN_END_STYLE}>
+      <h1 style={OUTCOME_STYLE}>{title}</h1>
+      <p style={{ margin: 0 }}>{detail}</p>
+      <button type="button" style={NEW_RUN_STYLE} onClick={onNewRun}>
+        Start a new Run
+      </button>
+    </div>
+  );
+}

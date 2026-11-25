@@ -1,0 +1,20 @@
+import type { RunState } from "../sim";
+import { useHudStore, type HudState } from "../view/hudStore";
+
+/** Called after every tick, so it writes to the store only when a value the HUD shows has changed. */
+export function syncHud(state: RunState): void {
+  const [hero] = state.heroes;
+  const next: HudState = {
+    heroHealth: hero?.health ?? 0,
+    heroMaxHealth: hero?.stats.maxHealth ?? 0,
+    outcome: state.outcome,
+  };
+  const shown = useHudStore.getState();
+  if (
+    next.heroHealth !== shown.heroHealth ||
+    next.heroMaxHealth !== shown.heroMaxHealth ||
+    next.outcome !== shown.outcome
+  ) {
+    useHudStore.setState(next);
+  }
+}

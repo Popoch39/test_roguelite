@@ -2,10 +2,12 @@ import { useFrame } from "@react-three/fiber";
 import { useRef, useState } from "react";
 import type { Group, MeshStandardMaterial, Sprite } from "three";
 import type { Enemy } from "../sim";
-import { enemyGroundPosition, type FrameSource } from "./frame";
+import { enemyGroundPosition, isFlashing, type FrameSource } from "./frame";
 
 const BODY_LENGTH = 0.6;
-const FLASH_TICKS = 6;
+const BODY_COLOR = "#c94f4f";
+// Far from every other color on screen, so that an Attack about to land cannot be missed.
+const WINDUP_COLOR = "#ff5cf4";
 const BAR_WIDTH = 1.2;
 const BAR_HEIGHT = 0.14;
 const BAR_GAP = 0.45;
@@ -38,9 +40,10 @@ function EnemyMesh({ enemy, source }: { enemy: Enemy; source: FrameSource }) {
     if (!group.current || !body.current || !healthFill.current || !live) return;
     enemyGroundPosition(source.frame, enemy.id, group.current.position);
 
-    const flashing =
-      live.lastDamagedTick !== null && current.tick - live.lastDamagedTick <= FLASH_TICKS;
-    body.current.emissive.set(flashing ? "#ffffff" : "#000000");
+    body.current.color.set(live.attack?.phase === "windup" ? WINDUP_COLOR : BODY_COLOR);
+    body.current.emissive.set(
+      isFlashing(source.frame, live.lastDamagedTick) ? "#ffffff" : "#000000",
+    );
     healthFill.current.scale.x = (BAR_WIDTH * Math.max(live.health, 0)) / live.maxHealth;
   });
 
@@ -48,7 +51,7 @@ function EnemyMesh({ enemy, source }: { enemy: Enemy; source: FrameSource }) {
     <group ref={group}>
       <mesh position-y={standingHeight}>
         <capsuleGeometry args={[enemy.radius, BODY_LENGTH]} />
-        <meshStandardMaterial ref={body} color="#c94f4f" />
+        <meshStandardMaterial ref={body} color={BODY_COLOR} />
       </mesh>
       <sprite position-y={barHeight} scale={[BAR_WIDTH, BAR_HEIGHT, 1]} renderOrder={1}>
         <spriteMaterial color="#10131a" depthTest={false} />

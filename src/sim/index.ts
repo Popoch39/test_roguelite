@@ -15,6 +15,8 @@ export type {
   HeroStats,
   Room,
   RoomTemplate,
+  RunOutcome,
+  RunPhase,
   RunState,
   Vec2,
   Wall,

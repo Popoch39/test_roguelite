@@ -28,7 +28,7 @@ const ROOM: RoomTemplate = {
 function startRun(overrides: Partial<RunOptions> = {}): Run {
   return createRun({
     seed: 1,
-    heroStats: { speed: 6 },
+    heroStats: { speed: 6, maxHealth: 100 },
     tuning: DEFAULT_TUNING,
     roomTemplate: ROOM,
     ...overrides,
@@ -83,8 +83,13 @@ function withAttack(heroAttack: Partial<Tuning["heroAttack"]>): Tuning {
   return { ...DEFAULT_TUNING, heroAttack: { ...DEFAULT_TUNING.heroAttack, ...heroAttack } };
 }
 
-// A quarter-circle sector, three units deep, against Enemies half a unit wide.
-const SWING: Tuning = {
+/** Enemies that neither chase nor attack, for the tests about what the Hero does to them. */
+function standing(tuning: Tuning): Tuning {
+  return { ...tuning, enemySpeed: 0, enemyAttack: { ...tuning.enemyAttack, triggerRange: 0 } };
+}
+
+// A quarter-circle sector, three units deep, against standing Enemies half a unit wide.
+const SWING: Tuning = standing({
   ...withAttack({
     windupTicks: 2,
     activeTicks: 3,
@@ -95,7 +100,7 @@ const SWING: Tuning = {
   }),
   enemyHealth: 50,
   enemyRadius: 0.5,
-};
+});
 
 /** Runs one whole Attack of the `SWING` tuning, from its first tick to the end of its Recovery. */
 function attackOnce(run: Run, aim: Vec2): void {
@@ -105,6 +110,55 @@ function attackOnce(run: Run, aim: Vec2): void {
 
 function holdMove(run: Run, move: Vec2, ticks: number): void {
   hold(run, { move }, ticks);
+}
+
+// An Enemy that reaches its speed of 3 units per second within one tick, and attacks from 1.5 units away
+// into a quarter-circle sector two units deep.
+const BITE: Tuning = {
+  ...DEFAULT_TUNING,
+  enemySpeed: 3,
+  enemyAcceleration: 180,
+  enemyAttack: {
+    windupTicks: 20,
+    activeTicks: 3,
+    recoveryTicks: 10,
+    damage: 15,
+    reach: 2,
+    angle: Math.PI / 2,
+    triggerRange: 1.5,
+  },
+};
+
+/** Enemies that chase but never start an Attack. */
+function neverAttacking(tuning: Tuning): Tuning {
+  return { ...tuning, enemyAttack: { ...tuning.enemyAttack, triggerRange: 0 } };
+}
+
+/** The only Enemy's Attack phase after each of the ticks, null while it chases. */
+function enemyAttackPhasesWhileHolding(
+  run: Run,
+  intent: Partial<typeof IDLE>,
+  ticks: number,
+): (AttackPhase | null)[] {
+  const phases: (AttackPhase | null)[] = [];
+  for (let tick = 0; tick < ticks; tick++) {
+    hold(run, intent, 1);
+    phases.push(onlyEnemy(run).attack?.phase ?? null);
+  }
+  return phases;
+}
+
+function ticksOf(phase: AttackPhase | null, count: number): (AttackPhase | null)[] {
+  return Array.from({ length: count }, () => phase);
+}
+
+/** The Hero against three Enemies of the default tuning, for 225 ticks of the same commands. */
+function playFight(): Run {
+  const run = startRun({ roomTemplate: arena({ x: 3, y: 0 }, { x: -4, y: 2 }, { x: 1, y: -5 }) });
+  hold(run, { attack: true, aim: { x: 1, y: 0 } }, 90);
+  hold(run, { move: { x: 0, y: 1 } }, 45);
+  hold(run, { attack: true, aim: { x: -1, y: -1 } }, 90);
+  return run;
 }
 
 beforeAll(async () => {
@@ -121,6 +175,19 @@ describe("creating a Run", () => {
 
   test("keeps the Run Seed it was created from", () => {
     expect(startRun({ seed: 1234 }).state.seed).toBe(1234);
+  });
+
+  test("starts in the combat phase, with no outcome yet", () => {
+    const { state } = startRun();
+
+    expect(state.phase).toBe("combat");
+    expect(state.outcome).toBeNull();
+  });
+
+  test("gives the Hero its starting maximum health", () => {
+    const hero = onlyHero(startRun({ heroStats: { speed: 6, maxHealth: 80 } }));
+
+    expect(hero.health).toBe(80);
   });
 });
 
@@ -152,7 +219,7 @@ describe("moving the Hero", () => {
   });
 
   test("covers the Hero's speed in units over 60 ticks", () => {
-    const run = startRun({ roomTemplate: OPEN_ROOM, heroStats: { speed: 4 } });
+    const run = startRun({ roomTemplate: OPEN_ROOM, heroStats: { speed: 4, maxHealth: 100 } });
 
     holdMove(run, { x: 1, y: 0 }, 60);
 
@@ -235,6 +302,15 @@ describe("stepping a Run", () => {
     expect(first.state.tick).toBe(540);
   });
 
+  test("plays a fight out the same way twice", () => {
+    const first = playFight();
+    const second = playFight();
+
+    expect(second.state).toEqual(first.state);
+    expect(first.state.enemies.length).toBeLessThan(3);
+    expect(onlyHero(first).health).toBeLessThan(100);
+  });
+
   test("keeps its state as plain serializable data", () => {
     const run = startRun();
     holdMove(run, { x: 1, y: 1 }, 5);
@@ -304,7 +380,7 @@ describe("collider outlines", () => {
   test("trace the Hero at its position and radius", () => {
     const run = startRun({
       roomTemplate: arena(),
-      heroStats: { speed: 4 },
+      heroStats: { speed: 4, maxHealth: 100 },
       tuning: { ...DEFAULT_TUNING, heroRadius: 1.5 },
     });
     // One second at 4 units per second: the Hero now stands at (4, 0).
@@ -388,12 +464,96 @@ describe("Enemies", () => {
     expect(run.state.enemies.map((enemy) => enemy.id)).toEqual(ids);
   });
 
-  test("stand still", () => {
-    const run = startRun({ roomTemplate: arena({ x: 4, y: 0 }) });
+  test("close the distance to the Hero in a straight line, at their speed", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 0, y: 9 }) });
 
-    holdMove(run, { x: 0, y: 1 }, 60);
+    hold(run, {}, 60);
 
-    expect(run.state.enemies[0]?.position).toEqual({ x: 4, y: 0 });
+    // One second at 3 units per second, starting 9 units away.
+    expect(onlyEnemy(run).position.x).toBeCloseTo(0, 2);
+    expect(onlyEnemy(run).position.y).toBeCloseTo(6, 1);
+  });
+
+  test("head for wherever the Hero now stands", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 0, y: 9 }) });
+
+    // The Hero ends 6 units to the right of where it started.
+    holdMove(run, { x: 1, y: 0 }, 60);
+
+    expect(onlyEnemy(run).position.x).toBeGreaterThan(0.5);
+    expect(onlyEnemy(run).position.y).toBeLessThan(7);
+  });
+
+  test("never damage the Hero by contact alone", () => {
+    const run = startRun({ tuning: neverAttacking(BITE), roomTemplate: arena({ x: 3, y: 0 }) });
+
+    holdMove(run, { x: 1, y: 0 }, 120);
+
+    const hero = onlyHero(run);
+    const enemy = onlyEnemy(run);
+    expect(distance(hero.position, enemy.position)).toBeLessThan(
+      hero.radius + enemy.radius + CONTACT_SLACK,
+    );
+    expect(hero.health).toBe(100);
+  });
+
+  test("stay apart from each other when they converge on the Hero", () => {
+    const run = startRun({
+      tuning: neverAttacking(BITE),
+      roomTemplate: arena(
+        { x: 6, y: 0 },
+        { x: 6, y: 1.1 },
+        { x: 6, y: -1.1 },
+        { x: -6, y: 0.3 },
+        { x: 0.4, y: 6 },
+      ),
+    });
+
+    let closestPair = Infinity;
+    for (let tick = 0; tick < 300; tick++) {
+      hold(run, {}, 1);
+      const { enemies } = run.state;
+      for (const [index, enemy] of enemies.entries()) {
+        for (const other of enemies.slice(index + 1)) {
+          closestPair = Math.min(closestPair, distance(enemy.position, other.position));
+        }
+      }
+    }
+
+    // Two Enemies half a unit wide touch when their centres are one unit apart.
+    expect(closestPair).toBeGreaterThan(1 - CONTACT_SLACK);
+    for (const enemy of run.state.enemies) {
+      expect(distance(onlyHero(run).position, enemy.position)).toBeLessThan(3);
+    }
+  });
+
+  test("are carried back by the push of the Hero's Attack before they chase again", () => {
+    const run = startRun({
+      tuning: { ...BITE, enemyAcceleration: 30, heroAttack: SWING.heroAttack },
+      roomTemplate: arena({ x: 2.5, y: 0 }),
+    });
+    // The Windup, then the first tick of the Active Phase, which damages the approaching Enemy.
+    hold(run, { attack: true, aim: { x: 1, y: 0 } }, 2 + 1);
+    expect(onlyEnemy(run).health).toBe(30);
+    const whenDamaged = distance(onlyHero(run).position, onlyEnemy(run).position);
+
+    hold(run, {}, 6);
+    const pushedTo = distance(onlyHero(run).position, onlyEnemy(run).position);
+    expect(pushedTo).toBeGreaterThan(whenDamaged + 0.3);
+
+    hold(run, {}, 30);
+    expect(distance(onlyHero(run).position, onlyEnemy(run).position)).toBeLessThan(pushedTo);
+  });
+
+  test("walk 3.5 units per second with the default tuning", () => {
+    const run = startRun({ roomTemplate: arena({ x: 0, y: 12 }) });
+
+    hold(run, {}, 120);
+
+    // Two seconds, less the fraction of a second an Enemy takes to reach its speed.
+    const walked = 12 - onlyEnemy(run).position.y;
+    expect(walked).toBeLessThanOrEqual(7);
+    expect(walked).toBeGreaterThan(6.5);
   });
 
   test("and the Hero do not overlap each other", () => {
@@ -411,7 +571,7 @@ describe("Enemies", () => {
   });
 
   test("come to rest once the Hero stops pushing them", () => {
-    const run = startRun({ roomTemplate: arena({ x: 2, y: 0 }) });
+    const run = startRun({ tuning: standing(DEFAULT_TUNING), roomTemplate: arena({ x: 2, y: 0 }) });
     holdMove(run, { x: 1, y: 0 }, 60);
 
     holdMove(run, { x: 0, y: 0 }, 60);
@@ -419,6 +579,201 @@ describe("Enemies", () => {
     holdMove(run, { x: 0, y: 0 }, 60);
 
     expect(distance(onlyEnemy(run).position, restingAt)).toBeLessThan(0.01);
+  });
+});
+
+describe("an Enemy's Attack", () => {
+  test("starts once the Hero is within trigger range, and stops the Enemy there", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 4, y: 0 }) });
+
+    hold(run, {}, 40);
+    expect(onlyEnemy(run).attack).toBeNull();
+
+    // 2.5 units to walk at 3 units per second take 50 ticks; a few more leave it early in its Windup.
+    hold(run, {}, 15);
+    expect(onlyEnemy(run).attack?.phase).toBe("windup");
+    const stoppedAt = { ...onlyEnemy(run).position };
+    const fromHero = distance(onlyHero(run).position, stoppedAt);
+    expect(fromHero).toBeLessThanOrEqual(1.5);
+    expect(fromHero).toBeGreaterThan(1.4);
+
+    hold(run, {}, 10);
+    expect(onlyEnemy(run).attack?.phase).toBe("windup");
+    expect(distance(onlyEnemy(run).position, stoppedAt)).toBeLessThan(0.01);
+  });
+
+  test("goes through Windup, Active Phase and Recovery for the tuning table's durations", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 1.2, y: 0 }) });
+
+    const phases = enemyAttackPhasesWhileHolding(run, {}, 20 + 3 + 10);
+
+    expect(phases).toEqual([
+      ...ticksOf("windup", 20),
+      ...ticksOf("active", 3),
+      ...ticksOf("recovery", 10),
+    ]);
+  });
+
+  test("damages the Hero when its Active Phase starts, not before, and only once", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 1.2, y: 0 }) });
+
+    hold(run, {}, 20);
+    expect(onlyHero(run).health).toBe(100);
+
+    hold(run, {}, 1);
+    expect(onlyHero(run).health).toBe(85);
+
+    // The rest of the Active Phase and the whole Recovery.
+    hold(run, {}, 2 + 10);
+    expect(onlyHero(run).health).toBe(85);
+  });
+
+  test("damages the Hero again with the Attack that follows", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 1.2, y: 0 }) });
+
+    hold(run, {}, 20 + 3 + 10);
+    hold(run, {}, 20 + 1);
+
+    expect(onlyHero(run).health).toBe(70);
+  });
+
+  test("marks the damaged Hero with the tick of the damage", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 1.2, y: 0 }) });
+    hold(run, {}, 20);
+    expect(onlyHero(run).lastDamagedTick).toBeNull();
+
+    const firstActiveTick = run.state.tick;
+    hold(run, {}, 5);
+
+    expect(onlyHero(run).lastDamagedTick).toBe(firstActiveTick);
+  });
+
+  test("keeps the direction of the tick its Windup started, so a Hero who steps out of its sector takes no damage", () => {
+    // A narrow sector, deep enough that the Hero never leaves its reach by stepping aside.
+    const narrow = { ...BITE.enemyAttack, reach: 3, angle: Math.PI / 6 };
+    const run = startRun({
+      tuning: { ...BITE, enemyAttack: narrow },
+      roomTemplate: arena({ x: 1.4, y: 0 }),
+    });
+    hold(run, {}, 1);
+
+    holdMove(run, { x: 0, y: 1 }, 19);
+    expect(onlyEnemy(run).attack?.direction.x).toBeCloseTo(-1, 5);
+    expect(onlyEnemy(run).attack?.direction.y).toBeCloseTo(0, 5);
+
+    holdMove(run, { x: 0, y: 1 }, 3);
+    expect(distance(onlyHero(run).position, onlyEnemy(run).position)).toBeLessThan(3);
+    expect(onlyHero(run).health).toBe(100);
+  });
+
+  test("does no damage to a Hero who walked out of its reach during the Windup", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 1.4, y: 0 }) });
+    hold(run, {}, 1);
+
+    holdMove(run, { x: -1, y: 0 }, 19 + 3 + 10);
+
+    expect(onlyHero(run).health).toBe(100);
+  });
+
+  test("holds the Enemy in place through its Recovery, then lets it chase again", () => {
+    const run = startRun({ tuning: BITE, roomTemplate: arena({ x: 1.2, y: 0 }) });
+    hold(run, {}, 20 + 3);
+    const stoodAt = { ...onlyEnemy(run).position };
+
+    // The Hero walks out of trigger range while the Enemy recovers.
+    for (let tick = 0; tick < 10; tick++) {
+      holdMove(run, { x: -1, y: 0 }, 1);
+
+      expect(onlyEnemy(run).attack?.phase).toBe("recovery");
+      expect(distance(onlyEnemy(run).position, stoodAt)).toBeLessThan(0.01);
+    }
+
+    holdMove(run, { x: -1, y: 0 }, 20);
+    expect(onlyEnemy(run).attack).toBeNull();
+    expect(onlyEnemy(run).position.x).toBeLessThan(stoodAt.x - 0.5);
+  });
+
+  test("is not interrupted when the Enemy is damaged and pushed back", () => {
+    const run = startRun({
+      tuning: { ...BITE, enemyAcceleration: 30, heroAttack: SWING.heroAttack },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+
+    const phases = [
+      ...enemyAttackPhasesWhileHolding(run, { attack: true, aim: { x: 1, y: 0 } }, 1),
+      ...enemyAttackPhasesWhileHolding(run, {}, 20 + 3 + 10 - 1),
+    ];
+
+    expect(phases).toEqual([
+      ...ticksOf("windup", 20),
+      ...ticksOf("active", 3),
+      ...ticksOf("recovery", 10),
+    ]);
+    expect(onlyEnemy(run).health).toBe(30);
+    expect(onlyEnemy(run).position.x).toBeGreaterThan(1.7);
+  });
+
+  test("lasts 30, 6 and 30 ticks and takes 15 of the Hero's 100 health with the default tuning", () => {
+    const run = startRun({
+      heroStats: DEFAULT_TUNING.heroStats,
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+    expect(onlyHero(run).health).toBe(100);
+
+    const phases = enemyAttackPhasesWhileHolding(run, {}, 30 + 6 + 30);
+
+    const ticksIn = (phase: AttackPhase | null) => phases.filter((each) => each === phase).length;
+    expect([ticksIn("windup"), ticksIn("active"), ticksIn("recovery")]).toEqual([30, 6, 30]);
+    expect(onlyHero(run).health).toBe(85);
+  });
+});
+
+describe("defeat", () => {
+  test("ends the Run on the tick the Hero's health reaches zero, not before", () => {
+    const run = startRun({
+      tuning: BITE,
+      heroStats: { speed: 6, maxHealth: 30 },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+
+    // Up to the tick before the second Attack's Active Phase.
+    hold(run, {}, 20 + 3 + 10 + 20);
+    expect(onlyHero(run).health).toBe(15);
+    expect(run.state.phase).toBe("combat");
+    expect(run.state.outcome).toBeNull();
+
+    hold(run, {}, 1);
+    expect(onlyHero(run).health).toBe(0);
+    expect(run.state.phase).toBe("ended");
+    expect(run.state.outcome).toBe("defeat");
+  });
+
+  test("leaves the Hero's health at zero when the damage exceeds what was left", () => {
+    const run = startRun({
+      tuning: BITE,
+      heroStats: { speed: 6, maxHealth: 10 },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+
+    hold(run, {}, 20 + 1);
+
+    expect(onlyHero(run).health).toBe(0);
+    expect(run.state.outcome).toBe("defeat");
+  });
+
+  test("freezes the Run: further steps change nothing", () => {
+    const run = startRun({
+      tuning: BITE,
+      heroStats: { speed: 6, maxHealth: 10 },
+      roomTemplate: arena({ x: 1.2, y: 0 }, { x: 0, y: 8 }),
+    });
+    hold(run, {}, 20 + 1);
+    const frozen = structuredClone(run.state);
+
+    hold(run, { move: { x: -1, y: 0 }, aim: { x: 1, y: 0 }, attack: true }, 60);
+
+    expect(run.state).toEqual(frozen);
+    expect(run.state.tick).toBe(21);
   });
 });
 
@@ -682,6 +1037,26 @@ describe("the Hero's Attack", () => {
     hold(run, {}, 4);
 
     expect(onlyEnemy(run).lastDamagedTick).toBe(firstActiveTick);
+  });
+
+  test("is not interrupted when the Hero is damaged", () => {
+    const run = startRun({
+      tuning: { ...BITE, heroAttack: { ...SWING.heroAttack, windupTicks: 30 } },
+      roomTemplate: arena({ x: 1.2, y: 0 }),
+    });
+
+    // Aimed away from the Enemy, whose Active Phase falls in the middle of this Windup.
+    const phases = [
+      ...attackPhasesWhileHolding(run, { attack: true, aim: { x: -1, y: 0 } }, 1),
+      ...attackPhasesWhileHolding(run, {}, 30 + 3 + 4 - 1),
+    ];
+
+    expect(phases).toEqual([
+      ...ticksOf("windup", 30),
+      ...ticksOf("active", 3),
+      ...ticksOf("recovery", 4),
+    ]);
+    expect(onlyHero(run).health).toBe(85);
   });
 
   test("does not start without a request", () => {

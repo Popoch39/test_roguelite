@@ -1,6 +1,6 @@
 import * as RAPIER from "@dimforge/rapier2d-compat";
 import type { AttackTuning } from "./tuning";
-import type { Attack, AttackPhase, Enemy, Vec2 } from "./types";
+import type { Attack, AttackPhase, Vec2 } from "./types";
 
 export interface Sector {
   apex: Vec2;
@@ -42,12 +42,15 @@ function phaseAt(
   return null;
 }
 
-/** The Enemies whose body overlaps the sector, among the bodies the last physics step placed. */
-export function enemiesInSector(
-  world: RAPIER.World,
-  enemies: readonly Enemy[],
-  sector: Sector,
-): Enemy[] {
+/** The area an Attack covers when made from `apex`. */
+export function attackSector(apex: Vec2, { direction, reach, angle }: Attack): Sector {
+  return { apex, direction, reach, angle };
+}
+
+/** The characters whose body overlaps the sector, among the bodies the last physics step placed. */
+export function charactersInSector<
+  Character extends { position: Vec2; radius: number; bodyHandle: number },
+>(world: RAPIER.World, characters: readonly Character[], sector: Sector): Character[] {
   const bodiesInReach = new Set<number>();
   // The engine has no sector shape: a disc of the same reach finds the candidates, the angle sorts them.
   world.intersectionsWithShape(sector.apex, 0, new RAPIER.Ball(sector.reach), (collider) => {
@@ -55,10 +58,10 @@ export function enemiesInSector(
     if (body) bodiesInReach.add(body.handle);
     return true;
   });
-  return enemies.filter(
-    (enemy) =>
-      bodiesInReach.has(enemy.bodyHandle) &&
-      discOverlapsOpening(enemy.position, enemy.radius, sector),
+  return characters.filter(
+    (character) =>
+      bodiesInReach.has(character.bodyHandle) &&
+      discOverlapsOpening(character.position, character.radius, sector),
   );
 }
 

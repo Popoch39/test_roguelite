@@ -16,19 +16,30 @@ export interface HeroAttackTuning extends AttackTuning {
   knockbackImpulse: number;
 }
 
+export interface EnemyAttackTuning extends AttackTuning {
+  /** Distance to the Hero, centre to centre, at which an Enemy stops chasing and starts its Attack. */
+  triggerRange: number;
+}
+
 export interface Tuning {
   heroStats: HeroStats;
   heroAttack: HeroAttackTuning;
   heroRadius: number;
   enemyHealth: number;
   enemyRadius: number;
-  /** How fast an Enemy loses the speed it got from a push; higher stops it sooner. */
-  enemyDamping: number;
+  /** Units per second. */
+  enemySpeed: number;
+  /**
+   * How fast an Enemy's velocity returns to the one it wants, in units per second squared.
+   * Lower lets a push carry it further before it stops or chases again.
+   */
+  enemyAcceleration: number;
+  enemyAttack: EnemyAttackTuning;
   wallThickness: number;
 }
 
 export const DEFAULT_TUNING: Tuning = {
-  heroStats: { speed: 6 },
+  heroStats: { speed: 6, maxHealth: 100 },
   heroAttack: {
     windupTicks: 4,
     activeTicks: 5,
@@ -41,6 +52,16 @@ export const DEFAULT_TUNING: Tuning = {
   heroRadius: 0.5,
   enemyHealth: 50,
   enemyRadius: 0.5,
-  enemyDamping: 8,
+  enemySpeed: 3.5,
+  enemyAcceleration: 30,
+  enemyAttack: {
+    windupTicks: 30,
+    activeTicks: 6,
+    recoveryTicks: 30,
+    damage: 15,
+    reach: 1.8,
+    angle: Math.PI / 2,
+    triggerRange: 1.5,
+  },
   wallThickness: 1,
 };
