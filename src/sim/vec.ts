@@ -4,6 +4,10 @@ export function distance(from: Vec2, to: Vec2): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
+export function subtract(to: Vec2, from: Vec2): Vec2 {
+  return { x: to.x - from.x, y: to.y - from.y };
+}
+
 export function scale({ x, y }: Vec2, factor: number): Vec2 {
   return { x: x * factor, y: y * factor };
 }

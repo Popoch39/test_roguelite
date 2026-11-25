@@ -42,10 +42,15 @@ export interface Dash {
   direction: Vec2;
 }
 
-export interface Hero {
+/** What a Hero and an Enemy have in common: a disc in the Room, moved by the physics world. */
+export interface Combatant {
   id: number;
   position: Vec2;
   radius: number;
+  bodyHandle: number;
+}
+
+export interface Hero extends Combatant {
   /** Unit vector toward where the Hero last aimed. */
   facing: Vec2;
   /** What the Hero started the Run with, before any Upgrade. */
@@ -61,20 +66,15 @@ export interface Hero {
   dash: Dash | null;
   /** The first tick on which a Dash request is accepted again. */
   dashReadyTick: number;
-  bodyHandle: number;
 }
 
-export interface Enemy {
-  id: number;
-  position: Vec2;
-  radius: number;
+export interface Enemy extends Combatant {
   health: number;
   maxHealth: number;
   /** Null until the Enemy is first damaged. */
   lastDamagedTick: number | null;
   /** Null while the Enemy chases. */
   attack: Attack | null;
-  bodyHandle: number;
 }
 
 export interface Pillar {

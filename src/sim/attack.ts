@@ -1,6 +1,7 @@
 import * as RAPIER from "@dimforge/rapier2d-compat";
 import type { AttackTuning } from "./tuning";
-import type { Attack, AttackPhase, Vec2 } from "./types";
+import type { Attack, AttackPhase, Combatant, Vec2 } from "./types";
+import { subtract } from "./vec";
 
 export interface Sector {
   apex: Vec2;
@@ -42,15 +43,42 @@ function phaseAt(
   return null;
 }
 
+/**
+ * Has every Attack in its Active Phase find its targets among the candidates, and calls `damage` for those
+ * it has not damaged yet, so that each is damaged at most once per Attack.
+ */
+export function resolveAttacks<
+  Attacker extends Combatant & { attack: Attack | null },
+  Target extends Combatant,
+>(
+  world: RAPIER.World,
+  attackers: readonly Attacker[],
+  candidates: readonly Target[],
+  damage: (target: Target, attacker: Attacker) => void,
+): void {
+  for (const attacker of attackers) {
+    const { attack } = attacker;
+    if (attack?.phase !== "active") continue;
+    const sector = attackSector(attacker.position, attack);
+    for (const target of targetsInSector(world, candidates, sector)) {
+      if (attack.damagedIds.includes(target.id)) continue;
+      attack.damagedIds.push(target.id);
+      damage(target, attacker);
+    }
+  }
+}
+
 /** The area an Attack covers when made from `apex`. */
-export function attackSector(apex: Vec2, { direction, reach, angle }: Attack): Sector {
+function attackSector(apex: Vec2, { direction, reach, angle }: Attack): Sector {
   return { apex, direction, reach, angle };
 }
 
-/** The characters whose body overlaps the sector, among the bodies the last physics step placed. */
-export function charactersInSector<
-  Character extends { position: Vec2; radius: number; bodyHandle: number },
->(world: RAPIER.World, characters: readonly Character[], sector: Sector): Character[] {
+/** The targets whose body overlaps the sector, among the bodies the last physics step placed. */
+function targetsInSector<Target extends Combatant>(
+  world: RAPIER.World,
+  candidates: readonly Target[],
+  sector: Sector,
+): Target[] {
   const bodiesInReach = new Set<number>();
   // The engine has no sector shape: a disc of the same reach finds the candidates, the angle sorts them.
   world.intersectionsWithShape(sector.apex, 0, new RAPIER.Ball(sector.reach), (collider) => {
@@ -58,17 +86,17 @@ export function charactersInSector<
     if (body) bodiesInReach.add(body.handle);
     return true;
   });
-  return characters.filter(
-    (character) =>
-      bodiesInReach.has(character.bodyHandle) &&
-      discOverlapsOpening(character.position, character.radius, sector),
+  return candidates.filter(
+    (candidate) =>
+      bodiesInReach.has(candidate.bodyHandle) &&
+      discOverlapsOpening(candidate.position, candidate.radius, sector),
   );
 }
 
 /** Whether a disc already known to be within reach also lies within the sector's opening. */
 function discOverlapsOpening(center: Vec2, radius: number, sector: Sector): boolean {
   const { apex, direction, reach } = sector;
-  const offset = { x: center.x - apex.x, y: center.y - apex.y };
+  const offset = subtract(center, apex);
   const distance = Math.hypot(offset.x, offset.y);
   if (distance <= radius) return true;
 

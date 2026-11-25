@@ -1,3 +1,4 @@
+import { shallow } from "zustand/shallow";
 import type { RunState } from "../sim";
 import { useHudStore, type HudState } from "../view/hudStore";
 
@@ -15,19 +16,6 @@ export function syncHud(state: RunState): void {
     goldEarned: state.goldEarned,
     outcome: state.outcome,
   };
-  const shown = useHudStore.getState();
-  if (
-    next.heroHealth !== shown.heroHealth ||
-    next.heroMaxHealth !== shown.heroMaxHealth ||
-    next.dashReady !== shown.dashReady ||
-    next.roomNumber !== shown.roomNumber ||
-    next.roomCount !== shown.roomCount ||
-    next.runSeed !== shown.runSeed ||
-    // The simulation replaces the offer, never changes it in place.
-    next.upgradeOffer !== shown.upgradeOffer ||
-    next.goldEarned !== shown.goldEarned ||
-    next.outcome !== shown.outcome
-  ) {
-    useHudStore.setState(next);
-  }
+  // Comparing each value by identity is enough for the offer too: the simulation replaces it, never changes it in place.
+  if (!shallow(next, useHudStore.getState())) useHudStore.setState(next);
 }
