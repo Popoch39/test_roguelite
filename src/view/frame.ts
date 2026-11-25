@@ -1,5 +1,5 @@
 import { Vector3 } from "three";
-import type { RunState, Vec2 } from "../sim";
+import type { LineSegment, RunState, Vec2 } from "../sim";
 
 /** What to draw: the simulation between its previous tick (alpha 0) and its current one (alpha 1). */
 export interface Frame {
@@ -12,6 +12,8 @@ export interface FrameSource {
   /** Called once per rendered frame, before anything is drawn. */
   advance(deltaSeconds: number): void;
   readonly frame: Frame;
+  /** For the debug overlay: the physics colliders as they stand at the current tick. */
+  colliderOutlines(): LineSegment[];
 }
 
 /** Writes the Hero's interpolated position into `target`, mapping simulation (x, y) to the ground plane (x, 0, z). */

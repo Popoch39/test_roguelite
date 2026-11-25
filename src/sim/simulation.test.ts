@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import {
+  colliderOutlines,
   createRun,
   DEFAULT_TUNING,
   initSimulation,
@@ -296,6 +297,70 @@ describe("walls", () => {
     const reach = onlyHero(run).position.x + 1.5;
     expect(reach).toBeLessThanOrEqual(10 + CONTACT_SLACK);
     expect(reach).toBeGreaterThan(10 - CONTACT_SLACK);
+  });
+});
+
+describe("collider outlines", () => {
+  test("trace the Hero at its position and radius", () => {
+    const run = startRun({
+      roomTemplate: arena(),
+      heroStats: { speed: 4 },
+      tuning: { ...DEFAULT_TUNING, heroRadius: 1.5 },
+    });
+    // One second at 4 units per second: the Hero now stands at (4, 0).
+    holdMove(run, { x: 1, y: 0 }, 60);
+
+    const aroundHero = colliderOutlines(run)
+      .flatMap(({ start, end }) => [start, end])
+      .filter(({ x, y }) => Math.hypot(x - 4, y) < 3);
+    const xs = aroundHero.map(({ x }) => x);
+    const ys = aroundHero.map(({ y }) => y);
+    expect(Math.min(...xs)).toBeCloseTo(2.5, 1);
+    expect(Math.max(...xs)).toBeCloseTo(5.5, 1);
+    expect(Math.min(...ys)).toBeCloseTo(-1.5, 1);
+    expect(Math.max(...ys)).toBeCloseTo(1.5, 1);
+  });
+
+  test("trace the walls at their position and thickness", () => {
+    // A 20 by 12 Room: inner faces at x = ±10 and y = ±6, outer faces one wall thickness further out.
+    const outlines = colliderOutlines(
+      startRun({ tuning: { ...DEFAULT_TUNING, wallThickness: 2 } }),
+    );
+    const SLACK = 0.01;
+    const runsAlong = (axis: "x" | "y", at: number, from: number, to: number): boolean => {
+      const across = axis === "x" ? "y" : "x";
+      return outlines.some(
+        ({ start, end }) =>
+          Math.abs(start[axis] - at) < SLACK &&
+          Math.abs(end[axis] - at) < SLACK &&
+          Math.min(start[across], end[across]) < from + SLACK &&
+          Math.max(start[across], end[across]) > to - SLACK,
+      );
+    };
+
+    expect(runsAlong("x", -10, -6, 6)).toBe(true);
+    expect(runsAlong("x", 10, -6, 6)).toBe(true);
+    expect(runsAlong("y", -6, -10, 10)).toBe(true);
+    expect(runsAlong("y", 6, -10, 10)).toBe(true);
+    expect(runsAlong("x", -12, -6, 6)).toBe(true);
+    expect(runsAlong("x", 12, -6, 6)).toBe(true);
+    expect(runsAlong("y", -8, -10, 10)).toBe(true);
+    expect(runsAlong("y", 8, -10, 10)).toBe(true);
+  });
+
+  test("leave the Run untouched when read every tick", () => {
+    const observed = startRun();
+    const unobserved = startRun();
+
+    // Long enough to end pressed into a corner, so contacts are part of what must not change.
+    for (let tick = 0; tick < 240; tick++) {
+      holdMove(observed, { x: 1, y: 1 }, 1);
+      colliderOutlines(observed);
+      holdMove(unobserved, { x: 1, y: 1 }, 1);
+    }
+
+    expect(observed.state).toEqual(unobserved.state);
+    expect(observed.state.tick).toBe(240);
   });
 });
 
