@@ -22,6 +22,24 @@ const HEALTH_TRACK_STYLE: CSSProperties = {
   border: "1px solid #5b6675",
 };
 
+const DASH_STYLE: CSSProperties = {
+  position: "fixed",
+  left: 16 + HEALTH_BAR_WIDTH + 16,
+  bottom: 16,
+  padding: "3px 10px",
+  font: "600 14px system-ui, sans-serif",
+  border: "1px solid #5b6675",
+  pointerEvents: "none",
+};
+
+const DASH_READY_STYLE: CSSProperties = { ...DASH_STYLE, color: "#14181f", background: "#7bd66f" };
+
+const DASH_RECHARGING_STYLE: CSSProperties = {
+  ...DASH_STYLE,
+  color: "#8b95a3",
+  background: "rgba(16, 19, 26, 0.8)",
+};
+
 const RUN_END_STYLE: CSSProperties = {
   position: "fixed",
   inset: 0,
@@ -56,6 +74,7 @@ export function Hud({ onNewRun }: { onNewRun: () => void }) {
   return (
     <>
       <HeroHealth />
+      <DashReadiness />
       {outcome && <RunEnd outcome={outcome} onNewRun={onNewRun} />}
     </>
   );
@@ -72,6 +91,16 @@ function HeroHealth() {
       <div style={HEALTH_TRACK_STYLE}>
         <div style={{ width: `${share * 100}%`, height: "100%", background: "#7bd66f" }} />
       </div>
+    </div>
+  );
+}
+
+function DashReadiness() {
+  const ready = useHudStore((hud) => hud.dashReady);
+
+  return (
+    <div style={ready ? DASH_READY_STYLE : DASH_RECHARGING_STYLE}>
+      {ready ? "Dash ready" : "Dash recharging"}
     </div>
   );
 }

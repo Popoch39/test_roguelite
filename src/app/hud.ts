@@ -7,12 +7,14 @@ export function syncHud(state: RunState): void {
   const next: HudState = {
     heroHealth: hero?.health ?? 0,
     heroMaxHealth: hero?.stats.maxHealth ?? 0,
+    dashReady: hero !== undefined && state.tick >= hero.dashReadyTick,
     outcome: state.outcome,
   };
   const shown = useHudStore.getState();
   if (
     next.heroHealth !== shown.heroHealth ||
     next.heroMaxHealth !== shown.heroMaxHealth ||
+    next.dashReady !== shown.dashReady ||
     next.outcome !== shown.outcome
   ) {
     useHudStore.setState(next);
