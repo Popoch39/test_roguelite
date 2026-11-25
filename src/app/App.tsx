@@ -3,7 +3,7 @@ import { createRun, DEFAULT_ROOM_TEMPLATES, DEFAULT_TUNING, initSimulation } fro
 import { BetweenRuns } from "../view/BetweenRuns";
 import { GameView } from "../view/GameView";
 import { Hud } from "../view/Hud";
-import { listenToDashKey, listenToMovementKeys } from "../view/keyboard";
+import { listenToDashKey, listenToMovementKeys, listenToUpgradePick } from "../view/keyboard";
 import { listenToMouse, type Mouse } from "../view/mouse";
 import { syncHud } from "./hud";
 import { createLoop, type Loop } from "./loop";
@@ -27,6 +27,7 @@ interface Game {
   startRun: () => void;
   leaveRun: () => void;
   buyTalentLevel: () => void;
+  pickUpgrade: (choice: number) => void;
 }
 
 interface Playing {
@@ -50,6 +51,7 @@ export function App() {
 
       const keys = listenToMovementKeys(window);
       const dashKey = listenToDashKey(window);
+      const upgradePick = listenToUpgradePick(window);
       const mouse = listenToMouse(window);
       const storage = createBrowserStorage();
       // The tick that ends a Run reads the Profile outside React, so the latest one is kept here too.
@@ -79,12 +81,15 @@ export function App() {
           () => {
             // Read once per tick: the press is spent on the first command that carries it.
             const dash = dashKey.takeRequest();
+            // Taken on every tick, so that a key pressed during the fight is not kept for the next offer.
+            const upgradeChoice = upgradePick.take();
             return run.state.heroes.map((hero) => ({
               heroId: hero.id,
               move: keys.read(),
               aim: mouse.aimFrom(hero.position),
               attack: mouse.attackHeld(),
               dash,
+              upgradeChoice,
             }));
           },
           (state) => {
@@ -115,6 +120,7 @@ export function App() {
         document.removeEventListener("visibilitychange", onVisibilityChange);
         keys.dispose();
         dashKey.dispose();
+        upgradePick.dispose();
         mouse.dispose();
       };
 
@@ -127,6 +133,7 @@ export function App() {
           const bought = buyTalentLevel(latestProfile);
           if (bought) keepProfile(bought);
         },
+        pickUpgrade: upgradePick.pick,
       });
     });
 
@@ -157,7 +164,7 @@ export function App() {
     <>
       {/* Keyed by Run: the meshes are built from the characters the Run started with. */}
       <GameView key={playing.runNumber} source={playing.loop} mouse={game.mouse} />
-      <Hud onLeaveRun={game.leaveRun} />
+      <Hud onLeaveRun={game.leaveRun} onPickUpgrade={game.pickUpgrade} />
     </>
   );
 }

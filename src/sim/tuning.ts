@@ -1,4 +1,4 @@
-import type { HeroStats } from "./types";
+import type { HeroStats, Upgrade } from "./types";
 
 export interface AttackTuning {
   windupTicks: number;
@@ -27,6 +27,8 @@ export interface DashTuning {
   speed: number;
   /** Counted from the tick the Dash starts. */
   cooldownTicks: number;
+  /** The shortest cooldown Upgrades can bring the Dash down to. */
+  cooldownFloorTicks: number;
 }
 
 export interface Tuning {
@@ -49,6 +51,8 @@ export interface Tuning {
   /** How many Enemies each Room of a Run holds, in order: a Run has one Room per entry. */
   enemiesPerRoom: number[];
   wallThickness: number;
+  /** Everything an offer can be drawn from. */
+  upgrades: Upgrade[];
 }
 
 export const DEFAULT_TUNING: Tuning = {
@@ -62,7 +66,7 @@ export const DEFAULT_TUNING: Tuning = {
     angle: Math.PI * 0.6,
     knockbackImpulse: 6,
   },
-  dash: { durationTicks: 10, speed: 18, cooldownTicks: 45 },
+  dash: { durationTicks: 10, speed: 18, cooldownTicks: 45, cooldownFloorTicks: 15 },
   heroRadius: 0.5,
   enemyHealth: 50,
   enemyRadius: 0.5,
@@ -80,4 +84,11 @@ export const DEFAULT_TUNING: Tuning = {
   enemyGold: 5,
   enemiesPerRoom: [3, 5, 7],
   wallThickness: 1,
+  upgrades: [
+    { name: "Vitality", stat: "maxHealth", amount: 20 },
+    { name: "Keen Edge", stat: "attackDamage", amount: 15 },
+    { name: "Fleet Foot", stat: "speed", amount: 1 },
+    { name: "Second Wind", stat: "dashCooldownTicks", amount: -12 },
+    { name: "Long Arm", stat: "attackReach", amount: 0.4 },
+  ],
 };

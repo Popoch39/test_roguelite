@@ -3,10 +3,20 @@ export interface Vec2 {
   y: number;
 }
 
+/** What a Hero starts a Run with. */
 export interface HeroStats {
   /** Units per second. */
   speed: number;
   maxHealth: number;
+}
+
+/** A Hero's stats as they stand now: each is one an Upgrade can improve. */
+export interface EffectiveStats extends HeroStats {
+  attackDamage: number;
+  /** Radius of the Attack's sector, from the Hero's centre. */
+  attackReach: number;
+  /** Counted from the tick the Dash starts. */
+  dashCooldownTicks: number;
 }
 
 export type AttackPhase = "windup" | "active" | "recovery";
@@ -38,7 +48,10 @@ export interface Hero {
   radius: number;
   /** Unit vector toward where the Hero last aimed. */
   facing: Vec2;
-  stats: HeroStats;
+  /** What the Hero started the Run with, before any Upgrade. */
+  baseStats: HeroStats;
+  /** The base stats plus the sum of the Upgrades taken. */
+  stats: EffectiveStats;
   health: number;
   /** Null until the Hero is first damaged. */
   lastDamagedTick: number | null;
@@ -78,6 +91,15 @@ export interface RoomTemplate {
   spawnPoints: Vec2[];
 }
 
+export type UpgradeStat = keyof EffectiveStats;
+
+export interface Upgrade {
+  name: string;
+  stat: UpgradeStat;
+  /** Added to the stat: negative for the Dash cooldown, which improves by going down. */
+  amount: number;
+}
+
 export interface Command {
   heroId: number;
   /** Any length: only the direction matters. Zero means stand still. */
@@ -88,6 +110,8 @@ export interface Command {
   attack: boolean;
   /** Edge-triggered by the input layer: true on one tick per press of the Dash input. */
   dash: boolean;
+  /** Position, from 0, of the Upgrade picked from the offer; left out on a tick without a pick. */
+  upgradeChoice?: number;
 }
 
 export interface Wall {
@@ -104,7 +128,7 @@ export interface Room {
   colliderHandles: number[];
 }
 
-export type RunPhase = "combat" | "ended";
+export type RunPhase = "combat" | "choosing" | "ended";
 
 export type RunOutcome = "victory" | "defeat";
 
@@ -121,6 +145,10 @@ export interface RunState {
   /** Position of the current Room in the Run, from 0. */
   roomIndex: number;
   room: Room;
+  /** What the Player picks one Upgrade from; empty outside the choosing phase. */
+  upgradeOffer: Upgrade[];
+  /** The Upgrades taken so far in the Run, in the order they were chosen; the same one can be there twice. */
+  upgrades: Upgrade[];
   /** Gold of the Enemies defeated so far in the Run. */
   goldEarned: number;
   /** The identifier the next character to appear will get: none is ever given twice in a Run. */

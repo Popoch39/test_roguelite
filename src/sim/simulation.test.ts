@@ -14,6 +14,7 @@ import {
   type Run,
   type RunOptions,
   type Tuning,
+  type Upgrade,
   type Vec2,
 } from "./index";
 
@@ -161,7 +162,7 @@ const BITE: Tuning = {
 const ENGULF: Tuning = {
   ...BITE,
   enemyAttack: { ...BITE.enemyAttack, reach: 60, angle: 2 * Math.PI },
-  dash: { durationTicks: 3, speed: 20, cooldownTicks: 20 },
+  dash: { durationTicks: 3, speed: 20, cooldownTicks: 20, cooldownFloorTicks: 20 },
 };
 
 /** Enemies that chase but never start an Attack. */
@@ -256,6 +257,47 @@ function clearRoom(run: Run): void {
   throw new Error("the Room was not cleared");
 }
 
+const VIGOR: Upgrade = { name: "Vigor", stat: "maxHealth", amount: 20 };
+const EDGE: Upgrade = { name: "Edge", stat: "attackDamage", amount: 10 };
+const STRIDE: Upgrade = { name: "Stride", stat: "speed", amount: 3 };
+const HASTE: Upgrade = { name: "Haste", stat: "dashCooldownTicks", amount: -8 };
+const LUNGE: Upgrade = { name: "Lunge", stat: "attackReach", amount: 2 };
+
+/** The tuning with exactly as many Upgrades as an offer holds, so that every offer holds all three of them. */
+function offering(tuning: Tuning, ...upgrades: [Upgrade, Upgrade, Upgrade]): Tuning {
+  return { ...tuning, upgrades };
+}
+
+/** Takes, from the offer, the Upgrade of that name. */
+function take(run: Run, { name }: Upgrade): void {
+  const upgradeChoice = run.state.upgradeOffer.findIndex((upgrade) => upgrade.name === name);
+  if (upgradeChoice < 0) throw new Error(`${name} is not on offer`);
+  chooseUpgrade(run, upgradeChoice);
+}
+
+/** The names of the Upgrades of both offers of a Run, in the order they are offered. */
+function offersDrawn(seed: number): string {
+  const run = startRunOfRooms({ seed });
+  const names = [0, 1].map(() => {
+    clearRoom(run);
+    const offered = run.state.upgradeOffer.map(({ name }) => name);
+    chooseUpgrade(run, 0);
+    return offered;
+  });
+  return JSON.stringify(names);
+}
+
+/** Takes the Upgrade at that position of the offer, from 0. */
+function chooseUpgrade(run: Run, upgradeChoice: number): void {
+  hold(run, { upgradeChoice }, 1);
+}
+
+/** Clears the Room the Hero stands in and, if the Run goes on, enters the next one with the first Upgrade on offer. */
+function leaveRoom(run: Run): void {
+  clearRoom(run);
+  if (run.state.phase === "choosing") chooseUpgrade(run, 0);
+}
+
 function startRunOfRooms(overrides: Partial<RunOptions> = {}): Run {
   return createRun({
     seed: 1,
@@ -281,7 +323,7 @@ function hallWidths(seed: number): number[] {
   const run = startRunOfRooms({ seed });
   return SWEEP.enemiesPerRoom.map(() => {
     const { width } = run.state.room;
-    clearRoom(run);
+    leaveRoom(run);
     return width;
   });
 }
@@ -322,7 +364,7 @@ function playDefaultRun(seed: number) {
     spawnPoints.push(run.state.enemies.map(({ position }) => ({ ...position })));
     holdMove(run, { x: 1, y: -1 }, 40);
     hold(run, {}, 80);
-    clearRoom(run);
+    leaveRoom(run);
   }
   return { rooms, spawnPoints, state: run.state };
 }
@@ -361,6 +403,12 @@ describe("creating a Run from content that cannot fill it", () => {
   test("refuses fewer Room Templates than the Run has Rooms", () => {
     expect(() => startRunOfRooms({ roomTemplates: HALLS.slice(0, 2) })).toThrow(
       "A Run of 3 Rooms needs 3 Room Templates, got 2",
+    );
+  });
+
+  test("refuses fewer Upgrades than an offer holds", () => {
+    expect(() => startRunOfRooms({ tuning: { ...SWEEP, upgrades: [VIGOR, EDGE] } })).toThrow(
+      "An offer of 3 Upgrades needs 3 to draw from, got 2",
     );
   });
 
@@ -981,7 +1029,7 @@ describe("a Run of several Rooms", () => {
     expect(draws.size).toBeGreaterThan(5);
   });
 
-  test("loads the next Room, with its own count of Enemies, the tick the last Enemy is defeated", () => {
+  test("loads the next Room, with its own count of Enemies, once an Upgrade is chosen", () => {
     const run = startRunOfRooms();
     expect(run.state.roomIndex).toBe(0);
 
@@ -991,6 +1039,10 @@ describe("a Run of several Rooms", () => {
     expect(run.state.enemies).toHaveLength(2);
 
     hold(run, { attack: true }, 1);
+    expect(run.state.roomIndex).toBe(0);
+    expect(run.state.enemies).toHaveLength(0);
+
+    chooseUpgrade(run, 0);
     expect(run.state.roomIndex).toBe(1);
     expect(run.state.enemies).toHaveLength(4);
     expect(run.state.phase).toBe("combat");
@@ -1003,7 +1055,7 @@ describe("a Run of several Rooms", () => {
       expect(onlyHero(run).position).toEqual(currentHall(run).entryPoint);
 
       holdMove(run, { x: 1, y: 1 }, 20);
-      clearRoom(run);
+      leaveRoom(run);
     }
   });
 
@@ -1013,7 +1065,7 @@ describe("a Run of several Rooms", () => {
       tuning: { ...SWEEP, enemiesPerRoom: [1, 1] },
       roomTemplates: [pillarAt({ x: 3, y: 0 }), pillarAt({ x: 0, y: 3 })],
     });
-    clearRoom(run);
+    leaveRoom(run);
     const [pillar] = run.state.room.pillars;
     const towardPreviousPillar = pillar?.center.x === 3 ? { x: 0, y: 1 } : { x: 1, y: 0 };
 
@@ -1033,7 +1085,7 @@ describe("a Run of several Rooms", () => {
       expect(ids.filter((id) => seen.includes(id))).toEqual([]);
       expect(new Set(ids).size).toBe(ids.length);
       seen.push(...ids);
-      clearRoom(run);
+      leaveRoom(run);
     }
     expect(seen).toHaveLength(1 + 2 + 4 + 5);
   });
@@ -1041,14 +1093,19 @@ describe("a Run of several Rooms", () => {
   test("carries the Hero's health over to the next Room, without healing", () => {
     const biteRoom = arena({ x: 1.2, y: 0 });
     const run = startRunOfRooms({
-      tuning: { ...BITE, heroAttack: SWEEP.heroAttack, enemyHealth: 50, enemiesPerRoom: [1, 1] },
+      tuning: offering(
+        { ...BITE, heroAttack: SWEEP.heroAttack, enemyHealth: 50, enemiesPerRoom: [1, 1] },
+        EDGE,
+        STRIDE,
+        LUNGE,
+      ),
       roomTemplates: [biteRoom, { ...biteRoom }],
     });
     // The first Active Phase of the Enemy standing next to the Hero.
     hold(run, {}, 20 + 1);
     expect(onlyHero(run).health).toBe(85);
 
-    clearRoom(run);
+    leaveRoom(run);
     expect(run.state.roomIndex).toBe(1);
     expect(onlyHero(run).health).toBe(85);
     expect(onlyHero(run).stats.maxHealth).toBe(100);
@@ -1068,6 +1125,322 @@ describe("a Run of several Rooms", () => {
     }
     // Three of four Room Templates can follow one another in twenty-four ways.
     expect(sequences.size).toBeGreaterThan(5);
+  });
+});
+
+describe("the Upgrade offer", () => {
+  test("takes the place of the next Room on the tick the first Room is cleared", () => {
+    const run = startRunOfRooms();
+    expect(run.state.upgradeOffer).toEqual([]);
+
+    clearRoom(run);
+
+    expect(run.state.phase).toBe("choosing");
+    expect(run.state.upgradeOffer).toHaveLength(3);
+    expect(run.state.roomIndex).toBe(0);
+    expect(run.state.enemies).toHaveLength(0);
+  });
+
+  test("ends when one of its Upgrades is chosen, which the Run then keeps", () => {
+    const run = startRunOfRooms();
+    expect(run.state.upgrades).toEqual([]);
+    clearRoom(run);
+    const [, second] = run.state.upgradeOffer;
+
+    chooseUpgrade(run, 1);
+
+    expect(run.state.phase).toBe("combat");
+    expect(run.state.upgradeOffer).toEqual([]);
+    expect(run.state.upgrades).toEqual(second ? [second] : []);
+    expect(run.state.upgrades).toHaveLength(1);
+    expect(run.state.roomIndex).toBe(1);
+  });
+
+  test("comes again after the second Room, and not after the third", () => {
+    const run = startRunOfRooms();
+    leaveRoom(run);
+
+    clearRoom(run);
+    expect(run.state.phase).toBe("choosing");
+    expect(run.state.upgradeOffer).toHaveLength(3);
+    expect(run.state.roomIndex).toBe(1);
+
+    chooseUpgrade(run, 2);
+    expect(run.state.roomIndex).toBe(2);
+
+    clearRoom(run);
+    expect(run.state.outcome).toBe("victory");
+    expect(run.state.upgradeOffer).toEqual([]);
+    expect(run.state.upgrades).toHaveLength(2);
+  });
+
+  test("holds three different Upgrades of the tuning table", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const run = startRunOfRooms({ seed });
+      clearRoom(run);
+
+      const offer = run.state.upgradeOffer;
+      expect(new Set(offer.map(({ name }) => name)).size).toBe(3);
+      for (const upgrade of offer) expect(SWEEP.upgrades).toContainEqual(upgrade);
+    }
+  });
+
+  test("is drawn with the Run Seed", () => {
+    expect(offersDrawn(7)).toBe(offersDrawn(7));
+    // Three Upgrades out of five can be offered in sixty orders, twice in a Run.
+    const draws = new Set(Array.from({ length: 20 }, (_, seed) => offersDrawn(seed)));
+    expect(draws.size).toBeGreaterThan(5);
+  });
+
+  test("can hold again an Upgrade taken earlier in the Run", () => {
+    const run = startRunOfRooms({ tuning: offering(SWEEP, VIGOR, EDGE, STRIDE) });
+    clearRoom(run);
+    take(run, EDGE);
+
+    clearRoom(run);
+
+    expect(run.state.upgradeOffer).toContainEqual(EDGE);
+  });
+});
+
+describe("choosing an Upgrade", () => {
+  test("is all that moves the Run on: until then movement, Attack and Dash change nothing", () => {
+    const run = startRunOfRooms({ tuning: { ...SWEEP, dash: LEAP.dash } });
+    clearRoom(run);
+    const frozen = structuredClone(run.state);
+
+    hold(run, { move: { x: 1, y: 0 }, aim: { x: 0, y: 1 }, attack: true, dash: true }, 30);
+
+    expect(run.state).toEqual(frozen);
+    expect(run.state.phase).toBe("choosing");
+  });
+
+  test.each([3, -1, 1.5, Number.NaN])(
+    "ignores the choice %p, where the offer has no Upgrade",
+    (upgradeChoice) => {
+      const run = startRunOfRooms();
+      clearRoom(run);
+      const frozen = structuredClone(run.state);
+
+      chooseUpgrade(run, upgradeChoice);
+
+      expect(run.state).toEqual(frozen);
+    },
+  );
+
+  test("ignores a choice addressed to another identifier", () => {
+    const run = startRunOfRooms();
+    clearRoom(run);
+    const frozen = structuredClone(run.state);
+
+    step(run, [{ ...IDLE, heroId: onlyHero(run).id + 100, upgradeChoice: 0 }]);
+
+    expect(run.state).toEqual(frozen);
+  });
+
+  test("ignores the Attack and the Dash requested along with the choice", () => {
+    const run = startRunOfRooms({ tuning: { ...SWEEP, dash: LEAP.dash } });
+    clearRoom(run);
+    const tick = run.state.tick;
+
+    hold(run, { upgradeChoice: 0, attack: true, dash: true, move: { x: 1, y: 0 } }, 1);
+
+    expect(run.state.roomIndex).toBe(1);
+    expect(run.state.tick).toBe(tick);
+    expect(onlyHero(run).dash).toBeNull();
+    expect(onlyHero(run).dashReadyTick).toBe(0);
+    expect(onlyHero(run).position).toEqual(currentHall(run).entryPoint);
+  });
+
+  test("is ignored while the fight is on", () => {
+    const run = startRunOfRooms();
+
+    chooseUpgrade(run, 0);
+
+    expect(run.state.upgrades).toEqual([]);
+    expect(run.state.phase).toBe("combat");
+    expect(run.state.roomIndex).toBe(0);
+  });
+});
+
+describe("an Upgrade taken", () => {
+  test("to maximum health raises it, and the Hero's health with it, by its amount", () => {
+    const biteRoom = arena({ x: 1.2, y: 0 });
+    const run = startRunOfRooms({
+      tuning: offering(
+        { ...BITE, heroAttack: SWEEP.heroAttack, enemyHealth: 50, enemiesPerRoom: [1, 1] },
+        VIGOR,
+        EDGE,
+        STRIDE,
+      ),
+      roomTemplates: [biteRoom, { ...biteRoom }],
+    });
+    // The first Active Phase of the Enemy standing next to the Hero.
+    hold(run, {}, 20 + 1);
+    expect(onlyHero(run).health).toBe(85);
+    clearRoom(run);
+
+    take(run, VIGOR);
+
+    expect(onlyHero(run).stats.maxHealth).toBe(120);
+    expect(onlyHero(run).health).toBe(105);
+  });
+
+  test("to Attack damage adds its amount to what an Attack takes from an Enemy", () => {
+    const run = startRunOfRooms({
+      tuning: offering(
+        {
+          ...SWEEP,
+          heroAttack: { ...SWEEP.heroAttack, damage: 30 },
+          enemyHealth: 60,
+          enemiesPerRoom: [1, 1],
+        },
+        EDGE,
+        STRIDE,
+        LUNGE,
+      ),
+    });
+    clearRoom(run);
+    take(run, EDGE);
+
+    // The Recovery of the Attack that cleared the first Room, then a Windup and the Active Phase.
+    hold(run, { attack: true }, 3);
+
+    expect(onlyEnemy(run).health).toBe(20);
+  });
+
+  test("to movement speed adds its amount to the units the Hero covers in a second", () => {
+    const run = startRunOfRooms({ tuning: offering(SWEEP, VIGOR, EDGE, STRIDE) });
+    clearRoom(run);
+    take(run, STRIDE);
+    // The Recovery of the Attack that cleared the first Room keeps the Hero still.
+    hold(run, {}, 1);
+    const from = onlyHero(run).position.x;
+
+    holdMove(run, { x: 1, y: 0 }, 60);
+
+    expect(onlyHero(run).position.x - from).toBeCloseTo(9, 2);
+  });
+
+  test("to the Dash cooldown brings the next Dash closer by its amount", () => {
+    const run = startRunOfRooms({
+      tuning: offering(
+        { ...SWEEP, dash: { ...LEAP.dash, cooldownFloorTicks: 10 } },
+        HASTE,
+        EDGE,
+        STRIDE,
+      ),
+    });
+    clearRoom(run);
+    take(run, HASTE);
+    const startTick = run.state.tick;
+
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dashReadyTick).toBe(startTick + 12);
+
+    // The 11th tick after the one the Dash started on, with a cooldown brought down from 20 to 12.
+    hold(run, {}, 10);
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dash).toBeNull();
+
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dash).not.toBeNull();
+  });
+
+  test("to Attack reach lets an Attack damage an Enemy that stood beyond it", () => {
+    // An Enemy five units from the entry point, against a reach of three: 3.5 with the Enemy's own radius.
+    const lane = arena({ x: 5, y: 0 });
+    const run = startRunOfRooms({
+      tuning: offering(
+        { ...SWEEP, heroAttack: { ...SWEEP.heroAttack, reach: 3 }, enemiesPerRoom: [1, 1] },
+        LUNGE,
+        EDGE,
+        STRIDE,
+      ),
+      roomTemplates: [lane, { ...lane }],
+    });
+    hold(run, { attack: true }, 6);
+    expect(onlyEnemy(run).health).toBe(50);
+    // Two units closer, the Enemy is within reach.
+    holdMove(run, { x: 1, y: 0 }, 20);
+    clearRoom(run);
+    take(run, LUNGE);
+
+    hold(run, { attack: true }, 3);
+
+    expect(run.state.outcome).toBe("victory");
+  });
+
+  test("adds to the same Upgrade taken before", () => {
+    const run = startRunOfRooms({ tuning: offering(SWEEP, VIGOR, EDGE, STRIDE) });
+    clearRoom(run);
+    take(run, STRIDE);
+    clearRoom(run);
+    take(run, STRIDE);
+    hold(run, {}, 1);
+    const from = onlyHero(run).position.x;
+
+    holdMove(run, { x: 1, y: 0 }, 60);
+
+    expect(onlyHero(run).position.x - from).toBeCloseTo(12, 2);
+  });
+
+  test("adds to an Upgrade of another stat taken before", () => {
+    const run = startRunOfRooms({ tuning: offering(SWEEP, VIGOR, EDGE, STRIDE) });
+    clearRoom(run);
+    take(run, VIGOR);
+    clearRoom(run);
+    take(run, EDGE);
+
+    expect(onlyHero(run).stats).toMatchObject({ maxHealth: 120, attackDamage: 60, speed: 6 });
+    expect(onlyHero(run).health).toBe(120);
+  });
+
+  test("is gone when a new Run starts", () => {
+    const options = { tuning: offering({ ...SWEEP, dash: LEAP.dash }, VIGOR, EDGE, STRIDE) };
+    const played = startRunOfRooms(options);
+    clearRoom(played);
+    take(played, VIGOR);
+    expect(onlyHero(played).stats.maxHealth).toBe(120);
+
+    const next = startRunOfRooms(options);
+
+    expect(next.state.upgrades).toEqual([]);
+    expect(onlyHero(next).health).toBe(100);
+    expect(onlyHero(next).stats).toEqual({
+      speed: 6,
+      maxHealth: 100,
+      attackDamage: 50,
+      attackReach: 100,
+      dashCooldownTicks: 20,
+    });
+  });
+
+  test("never brings the Dash cooldown below its floor", () => {
+    const run = startRunOfRooms({
+      tuning: offering(
+        { ...SWEEP, dash: { ...LEAP.dash, cooldownFloorTicks: 10 } },
+        HASTE,
+        EDGE,
+        STRIDE,
+      ),
+    });
+    clearRoom(run);
+    take(run, HASTE);
+    clearRoom(run);
+    take(run, HASTE);
+    const startTick = run.state.tick;
+
+    // Twice 8 ticks off a cooldown of 20 would leave 4.
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dashReadyTick).toBe(startTick + 10);
+
+    hold(run, {}, 8);
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dash).toBeNull();
+
+    hold(run, { dash: true, move: { x: 1, y: 0 } }, 1);
+    expect(onlyHero(run).dash).not.toBeNull();
   });
 });
 
@@ -1108,6 +1481,33 @@ describe("the default Room Templates", () => {
   });
 });
 
+describe("the default Upgrades", () => {
+  test("cover maximum health, Attack damage, movement speed, Dash cooldown and Attack reach", () => {
+    const stats = DEFAULT_TUNING.upgrades.map(({ stat }) => stat);
+
+    expect(stats.toSorted()).toEqual([
+      "attackDamage",
+      "attackReach",
+      "dashCooldownTicks",
+      "maxHealth",
+      "speed",
+    ]);
+  });
+
+  test("each have a name of their own", () => {
+    const names = DEFAULT_TUNING.upgrades.map(({ name }) => name);
+
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) expect(name).not.toBe("");
+  });
+
+  test("each improve their stat: a shorter Dash cooldown, more of everything else", () => {
+    for (const { stat, amount } of DEFAULT_TUNING.upgrades) {
+      expect(stat === "dashCooldownTicks" ? -amount : amount).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("a Run of the default content", () => {
   test("has three Rooms of 3, then 5, then 7 Enemies, and ends in victory", () => {
     const run = startDefaultRun(1);
@@ -1115,7 +1515,7 @@ describe("a Run of the default content", () => {
     const enemyCounts = [0, 1, 2].map((roomIndex) => {
       expect(run.state.roomIndex).toBe(roomIndex);
       const count = run.state.enemies.length;
-      clearRoom(run);
+      leaveRoom(run);
       return count;
     });
 
@@ -1130,7 +1530,7 @@ describe("a Run of the default content", () => {
         for (const enemy of run.state.enemies) {
           expect(distance(onlyHero(run).position, enemy.position)).toBeGreaterThanOrEqual(6);
         }
-        clearRoom(run);
+        leaveRoom(run);
       }
     }
   });
@@ -1251,7 +1651,7 @@ describe("Gold", () => {
     const run = startRunOfRooms({ tuning: { ...SWEEP, enemyGold: 3 } });
 
     const tallies = SWEEP.enemiesPerRoom.map(() => {
-      clearRoom(run);
+      leaveRoom(run);
       return run.state.goldEarned;
     });
 
@@ -1277,7 +1677,7 @@ describe("Gold", () => {
   test("is 5 per Enemy with the default tuning: 75 for a Run won", () => {
     const run = startDefaultRun(1);
 
-    while (run.state.phase === "combat") clearRoom(run);
+    while (run.state.phase === "combat") leaveRoom(run);
 
     expect(run.state.outcome).toBe("victory");
     expect(run.state.goldEarned).toBe(75);
@@ -1287,8 +1687,8 @@ describe("Gold", () => {
 describe("victory", () => {
   test("ends the Run the tick the last Enemy of the last Room is defeated, not before", () => {
     const run = startRunOfRooms();
-    clearRoom(run);
-    clearRoom(run);
+    leaveRoom(run);
+    leaveRoom(run);
 
     // The Recovery of the Attack that cleared the second Room, then the Windup of the next one.
     hold(run, { attack: true }, 2);
@@ -1305,7 +1705,7 @@ describe("victory", () => {
 
   test("freezes the Run: further steps change nothing", () => {
     const run = startRunOfRooms();
-    for (const _ of SWEEP.enemiesPerRoom) clearRoom(run);
+    for (const _ of SWEEP.enemiesPerRoom) leaveRoom(run);
     const frozen = structuredClone(run.state);
 
     hold(run, { move: { x: 1, y: 0 }, aim: { x: 0, y: 1 }, attack: true }, 60);

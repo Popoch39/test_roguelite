@@ -11,6 +11,7 @@ export function syncHud(state: RunState): void {
     roomNumber: state.roomIndex + 1,
     roomCount: state.roomTemplates.length,
     runSeed: state.seed,
+    upgradeOffer: state.upgradeOffer,
     goldEarned: state.goldEarned,
     outcome: state.outcome,
   };
@@ -22,6 +23,8 @@ export function syncHud(state: RunState): void {
     next.roomNumber !== shown.roomNumber ||
     next.roomCount !== shown.roomCount ||
     next.runSeed !== shown.runSeed ||
+    // The simulation replaces the offer, never changes it in place.
+    next.upgradeOffer !== shown.upgradeOffer ||
     next.goldEarned !== shown.goldEarned ||
     next.outcome !== shown.outcome
   ) {

@@ -48,6 +48,42 @@ export function listenToDashKey(target: Window): DashKey {
   };
 }
 
+export interface UpgradePick {
+  /** For a pick made without the keys: a click on the HUD. */
+  pick(choice: number): void;
+  /** The position in the offer, from 0, of the Upgrade picked since the last call: each pick is reported once. */
+  take(): number | undefined;
+  dispose(): void;
+}
+
+// By physical position, like the movement keys: on AZERTY the digit row types symbols unless Shift is held.
+const UPGRADE_KEYS = ["Digit1", "Digit2", "Digit3"];
+
+export function listenToUpgradePick(target: Window): UpgradePick {
+  let picked: number | undefined;
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    const choice = UPGRADE_KEYS.indexOf(event.code);
+    if (choice >= 0 && !event.repeat) picked = choice;
+  };
+
+  target.addEventListener("keydown", onKeyDown);
+
+  return {
+    pick(choice) {
+      picked = choice;
+    },
+    take() {
+      const taken = picked;
+      picked = undefined;
+      return taken;
+    },
+    dispose() {
+      target.removeEventListener("keydown", onKeyDown);
+    },
+  };
+}
+
 export function listenToMovementKeys(target: Window): MovementKeys {
   const held = new Set<string>();
 
