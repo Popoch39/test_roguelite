@@ -1,3 +1,5 @@
+export { colliderOutlines } from "./colliderOutlines";
+export type { LineSegment } from "./colliderOutlines";
 export { initSimulation } from "./physics";
 export { DEFAULT_ROOM_TEMPLATE } from "./roomTemplates";
 export { createRun, step, TICKS_PER_SECOND } from "./run";
