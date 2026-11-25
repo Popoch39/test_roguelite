@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createRun, DEFAULT_ROOM_TEMPLATES, DEFAULT_TUNING, initSimulation } from "../sim";
 import { GameView } from "../view/GameView";
 import { Hud } from "../view/Hud";
-import { listenToDashKey, listenToMovementKeys } from "../view/keyboard";
+import { listenToDashKey, listenToMovementKeys, listenToUpgradePick } from "../view/keyboard";
 import { listenToMouse, type Mouse } from "../view/mouse";
 import { syncHud } from "./hud";
 import { createLoop, type Loop } from "./loop";
@@ -14,6 +14,7 @@ interface Playing {
   /** Counts the Runs started since the page loaded, so that each one gets a view of its own. */
   runNumber: number;
   startRun: () => void;
+  pickUpgrade: (choice: number) => void;
 }
 
 export function App() {
@@ -28,6 +29,7 @@ export function App() {
 
       const keys = listenToMovementKeys(window);
       const dashKey = listenToDashKey(window);
+      const upgradePick = listenToUpgradePick(window);
       const mouse = listenToMouse(window);
       let loop: Loop | null = null;
       let runNumber = 0;
@@ -44,12 +46,15 @@ export function App() {
           () => {
             // Read once per tick: the press is spent on the first command that carries it.
             const dash = dashKey.takeRequest();
+            // Taken on every tick, so that a key pressed during the fight is not kept for the next offer.
+            const upgradeChoice = upgradePick.take();
             return run.state.heroes.map((hero) => ({
               heroId: hero.id,
               move: keys.read(),
               aim: mouse.aimFrom(hero.position),
               attack: mouse.attackHeld(),
               dash,
+              upgradeChoice,
             }));
           },
           syncHud,
@@ -57,7 +62,7 @@ export function App() {
         syncHud(run.state);
         loop = started;
         runNumber += 1;
-        setPlaying({ loop: started, mouse, runNumber, startRun });
+        setPlaying({ loop: started, mouse, runNumber, startRun, pickUpgrade: upgradePick.pick });
       };
 
       const onVisibilityChange = () => (document.hidden ? loop?.suspend() : loop?.resume());
@@ -66,6 +71,7 @@ export function App() {
         document.removeEventListener("visibilitychange", onVisibilityChange);
         keys.dispose();
         dashKey.dispose();
+        upgradePick.dispose();
         mouse.dispose();
       };
 
@@ -83,7 +89,7 @@ export function App() {
       <>
         {/* Keyed by Run: the meshes are built from the characters the Run started with. */}
         <GameView key={playing.runNumber} source={playing.loop} mouse={playing.mouse} />
-        <Hud onNewRun={playing.startRun} />
+        <Hud onNewRun={playing.startRun} onPickUpgrade={playing.pickUpgrade} />
       </>
     )
   );

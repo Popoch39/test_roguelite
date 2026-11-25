@@ -11,6 +11,7 @@ export type {
   AttackPhase,
   Command,
   Dash,
+  EffectiveStats,
   Enemy,
   Hero,
   HeroStats,
@@ -20,6 +21,8 @@ export type {
   RunOutcome,
   RunPhase,
   RunState,
+  Upgrade,
+  UpgradeStat,
   Vec2,
   Wall,
 } from "./types";

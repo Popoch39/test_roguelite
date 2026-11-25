@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { RunOutcome } from "../sim";
+import { TICKS_PER_SECOND, type RunOutcome, type Upgrade, type UpgradeStat } from "../sim";
 import { useHudStore } from "./hudStore";
 
 const HEALTH_BAR_WIDTH = 220;
@@ -81,19 +81,69 @@ const NEW_RUN_STYLE: CSSProperties = {
   cursor: "pointer",
 };
 
+const UPGRADE_CHOICE_STYLE: CSSProperties = { ...RUN_END_STYLE, gap: 24 };
+
+const UPGRADE_OFFER_STYLE: CSSProperties = { display: "flex", gap: 16 };
+
+const UPGRADE_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 8,
+  width: 200,
+  padding: "16px 12px",
+  font: "16px system-ui, sans-serif",
+  color: "#f2f4f8",
+  background: "#232a35",
+  border: "1px solid #5b6675",
+  cursor: "pointer",
+};
+
+const UPGRADE_KEY_STYLE: CSSProperties = {
+  padding: "1px 8px",
+  font: "600 13px monospace",
+  color: "#14181f",
+  background: "#e8a33d",
+};
+
+const UPGRADE_NAME_STYLE: CSSProperties = { font: "700 18px system-ui, sans-serif" };
+
+const EFFECT_TEXT: Record<UpgradeStat, (amount: number) => string> = {
+  maxHealth: (amount) => `${signed(amount)} maximum health`,
+  attackDamage: (amount) => `${signed(amount)} Attack damage`,
+  speed: (amount) => `${signed(amount)} movement speed`,
+  // The simulation counts in ticks; a Player reads seconds.
+  dashCooldownTicks: (amount) => `${signed(amount / TICKS_PER_SECOND)} s Dash cooldown`,
+  attackReach: (amount) => `${signed(amount)} Attack reach`,
+};
+
+function signed(amount: number): string {
+  // Two decimals at most: a division into seconds would otherwise show its rounding error.
+  const rounded = Number(amount.toFixed(2));
+  return rounded > 0 ? `+${rounded}` : String(rounded);
+}
+
 const OUTCOME_TEXT: Record<RunOutcome, { title: string; detail: string }> = {
   victory: { title: "Victory", detail: "Every Room is cleared." },
   defeat: { title: "Defeat", detail: "The Hero has fallen." },
 };
 
-export function Hud({ onNewRun }: { onNewRun: () => void }) {
+export function Hud({
+  onNewRun,
+  onPickUpgrade,
+}: {
+  onNewRun: () => void;
+  onPickUpgrade: (choice: number) => void;
+}) {
   const outcome = useHudStore((hud) => hud.outcome);
+  const upgradeOffer = useHudStore((hud) => hud.upgradeOffer);
 
   return (
     <>
       <HeroHealth />
       <DashReadiness />
       <RunProgress />
+      {upgradeOffer.length > 0 && <UpgradeChoice offer={upgradeOffer} onPick={onPickUpgrade} />}
       {outcome && <RunEnd outcome={outcome} onNewRun={onNewRun} />}
     </>
   );
@@ -133,6 +183,28 @@ function RunProgress() {
     <div style={RUN_PROGRESS_STYLE}>
       Room {roomNumber} / {roomCount}
       <div style={RUN_SEED_STYLE}>Run Seed {runSeed}</div>
+    </div>
+  );
+}
+
+function UpgradeChoice({ offer, onPick }: { offer: Upgrade[]; onPick: (choice: number) => void }) {
+  return (
+    <div style={UPGRADE_CHOICE_STYLE}>
+      <h1 style={{ margin: 0, font: "700 32px system-ui, sans-serif" }}>Choose an Upgrade</h1>
+      <div style={UPGRADE_OFFER_STYLE}>
+        {offer.map((upgrade, choice) => (
+          <button
+            key={upgrade.name}
+            type="button"
+            style={UPGRADE_STYLE}
+            onClick={() => onPick(choice)}
+          >
+            <span style={UPGRADE_KEY_STYLE}>{choice + 1}</span>
+            <span style={UPGRADE_NAME_STYLE}>{upgrade.name}</span>
+            <span>{EFFECT_TEXT[upgrade.stat](upgrade.amount)}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

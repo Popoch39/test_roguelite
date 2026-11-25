@@ -5,6 +5,7 @@ import { actEnemies, spawnEnemy } from "./enemy";
 import { drawSequence, drawSubset } from "./random";
 import { loadRoom, unloadRoom } from "./room";
 import type { Tuning } from "./tuning";
+import { effectiveStats, offerUpgrades, takeChosenUpgrade, UPGRADES_PER_OFFER } from "./upgrades";
 import type { Command, HeroStats, RoomTemplate, RunState } from "./types";
 import { normalize, scale } from "./vec";
 
@@ -42,6 +43,11 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
   if (roomTemplates.some(({ spawnPoints }) => spawnPoints.length < mostEnemies)) {
     throw new Error(`Every Room Template needs at least ${mostEnemies} spawn points`);
   }
+  if (tuning.upgrades.length < UPGRADES_PER_OFFER) {
+    throw new Error(
+      `An offer of ${UPGRADES_PER_OFFER} Upgrades needs ${UPGRADES_PER_OFFER} to draw from, got ${tuning.upgrades.length}`,
+    );
+  }
 
   const world = new RAPIER.World({ x: 0, y: 0 });
   world.timestep = 1 / TICKS_PER_SECOND;
@@ -71,6 +77,8 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
     roomIndex: 0,
     // Nothing is loaded yet: entering the first Room fills in the Room, the Hero's position and the Enemies.
     room: { width: 0, height: 0, walls: [], pillars: [], colliderHandles: [] },
+    upgradeOffer: [],
+    upgrades: [],
     nextId: HERO_ID + 1,
     heroes: [
       {
@@ -78,7 +86,8 @@ export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions
         position: { x: 0, y: 0 },
         radius: tuning.heroRadius,
         facing: { x: 1, y: 0 },
-        stats: { ...heroStats },
+        baseStats: { ...heroStats },
+        stats: effectiveStats(heroStats, tuning, []),
         health: heroStats.maxHealth,
         lastDamagedTick: null,
         attack: null,
@@ -118,6 +127,13 @@ export function step(run: Run, commands: readonly Command[]): void {
   const { state } = run;
   if (state.phase === "ended") return;
   const world = run[physicsWorld];
+  if (state.phase === "choosing") {
+    // Nothing else moves, the tick counter included: a Dash cooldown must not run down during the choice.
+    if (takeChosenUpgrade(state, run[tuningTable], commands)) {
+      enterRoom(state, world, run[tuningTable], state.roomIndex + 1);
+    }
+    return;
+  }
 
   actHeroes(state, world, commands, run[tuningTable]);
   actEnemies(state, world, run[tuningTable]);
@@ -151,10 +167,13 @@ function actHeroes(
     }
     if (startsDash) {
       hero.dash = startDash(move.x !== 0 || move.y !== 0 ? move : hero.facing, tuning.dash);
-      hero.dashReadyTick = state.tick + tuning.dash.cooldownTicks;
+      hero.dashReadyTick = state.tick + hero.stats.dashCooldownTicks;
     }
     if (!hero.attack && !hero.dash && command?.attack) {
-      hero.attack = startAttack(hero.facing, tuning.heroAttack);
+      hero.attack = startAttack(hero.facing, {
+        ...tuning.heroAttack,
+        reach: hero.stats.attackReach,
+      });
     }
 
     const velocity = hero.dash
@@ -165,7 +184,7 @@ function actHeroes(
 }
 
 function resolveHeroAttacks(state: RunState, world: RAPIER.World, tuning: Tuning): void {
-  const { damage, knockbackImpulse } = tuning.heroAttack;
+  const { knockbackImpulse } = tuning.heroAttack;
   for (const hero of state.heroes) {
     const { attack } = hero;
     if (attack?.phase !== "active") continue;
@@ -173,7 +192,7 @@ function resolveHeroAttacks(state: RunState, world: RAPIER.World, tuning: Tuning
     for (const enemy of charactersInSector(world, state.enemies, sector)) {
       if (attack.damagedIds.includes(enemy.id)) continue;
       attack.damagedIds.push(enemy.id);
-      enemy.health -= damage;
+      enemy.health -= hero.stats.attackDamage;
       enemy.lastDamagedTick = state.tick;
 
       const away = normalize({
@@ -229,7 +248,7 @@ function leaveClearedRoom(
 ): void {
   if (state.phase !== "combat" || enemiesDefeated === 0 || state.enemies.length > 0) return;
   if (state.roomIndex + 1 < state.roomTemplates.length) {
-    enterRoom(state, world, tuning, state.roomIndex + 1);
+    offerUpgrades(state, tuning);
   } else {
     state.phase = "ended";
     state.outcome = "victory";
