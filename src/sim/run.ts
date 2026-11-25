@@ -1,14 +1,20 @@
 import * as RAPIER from "@dimforge/rapier2d-compat";
+import { advanceAttack, enemiesInSector, startAttack } from "./attack";
+import { spawnEnemy } from "./enemy";
 import { loadRoom } from "./room";
 import type { Tuning } from "./tuning";
-import type { Command, HeroStats, RoomTemplate, RunState, Vec2 } from "./types";
+import type { Command, HeroStats, RoomTemplate, RunState } from "./types";
+import { normalize } from "./vec";
 
 // Not re-exported from the public interface, so only the simulation can reach the physics world.
 export const physicsWorld: unique symbol = Symbol("physicsWorld");
 
+const tuningTable: unique symbol = Symbol("tuningTable");
+
 export interface Run {
   readonly state: RunState;
   readonly [physicsWorld]: RAPIER.World;
+  readonly [tuningTable]: Tuning;
 }
 
 export interface RunOptions {
@@ -39,6 +45,10 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
     body,
   );
 
+  const enemies = roomTemplate.spawnPoints.map((spawnPoint, index) =>
+    spawnEnemy(world, HERO_ID + 1 + index, spawnPoint, tuning),
+  );
+
   const state: RunState = {
     seed,
     tick: 0,
@@ -48,43 +58,91 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
         id: HERO_ID,
         position: { ...entryPoint },
         radius: tuning.heroRadius,
+        facing: { x: 1, y: 0 },
         stats: { ...heroStats },
+        attack: null,
         bodyHandle: body.handle,
       },
     ],
+    enemies,
   };
 
-  return { state, [physicsWorld]: world };
+  return { state, [physicsWorld]: world, [tuningTable]: tuning };
 }
 
 export function step(run: Run, commands: readonly Command[]): void {
   const { state } = run;
   const world = run[physicsWorld];
 
-  moveHeroes(state, world, commands);
+  actHeroes(state, world, commands, run[tuningTable]);
   world.step();
   readPositions(state, world);
+  resolveHeroAttacks(state, world, run[tuningTable]);
+  removeDefeatedEnemies(state, world);
   state.tick += 1;
 }
 
-function moveHeroes(state: RunState, world: RAPIER.World, commands: readonly Command[]): void {
+function actHeroes(
+  state: RunState,
+  world: RAPIER.World,
+  commands: readonly Command[],
+  tuning: Tuning,
+): void {
   for (const hero of state.heroes) {
     const command = commands.find(({ heroId }) => heroId === hero.id);
+    if (hero.attack) hero.attack = advanceAttack(hero.attack, tuning.heroAttack);
+    if (!hero.attack) {
+      const aim = normalize(command?.aim ?? { x: 0, y: 0 });
+      if (aim.x !== 0 || aim.y !== 0) hero.facing = aim;
+      if (command?.attack) hero.attack = startAttack(hero.facing, tuning.heroAttack);
+    }
+
+    const speed = hero.attack ? 0 : hero.stats.speed;
     const direction = normalize(command?.move ?? { x: 0, y: 0 });
     world
       .getRigidBody(hero.bodyHandle)
-      .setLinvel({ x: direction.x * hero.stats.speed, y: direction.y * hero.stats.speed }, true);
+      .setLinvel({ x: direction.x * speed, y: direction.y * speed }, true);
   }
+}
+
+function resolveHeroAttacks(state: RunState, world: RAPIER.World, tuning: Tuning): void {
+  const { damage, knockbackImpulse } = tuning.heroAttack;
+  for (const hero of state.heroes) {
+    const { attack } = hero;
+    if (attack?.phase !== "active") continue;
+    const sector = {
+      apex: hero.position,
+      direction: attack.direction,
+      reach: attack.reach,
+      angle: attack.angle,
+    };
+    for (const enemy of enemiesInSector(world, state.enemies, sector)) {
+      if (attack.damagedIds.includes(enemy.id)) continue;
+      attack.damagedIds.push(enemy.id);
+      enemy.health -= damage;
+      enemy.lastDamagedTick = state.tick;
+
+      const away = normalize({
+        x: enemy.position.x - hero.position.x,
+        y: enemy.position.y - hero.position.y,
+      });
+      world
+        .getRigidBody(enemy.bodyHandle)
+        .applyImpulse({ x: away.x * knockbackImpulse, y: away.y * knockbackImpulse }, true);
+    }
+  }
+}
+
+function removeDefeatedEnemies(state: RunState, world: RAPIER.World): void {
+  for (const enemy of state.enemies) {
+    if (enemy.health <= 0) world.removeRigidBody(world.getRigidBody(enemy.bodyHandle));
+  }
+  state.enemies = state.enemies.filter((enemy) => enemy.health > 0);
 }
 
 function readPositions(state: RunState, world: RAPIER.World): void {
-  for (const hero of state.heroes) {
-    const { x, y } = world.getRigidBody(hero.bodyHandle).translation();
-    hero.position = { x, y };
+  for (const character of [...state.heroes, ...state.enemies]) {
+    const { x, y } = world.getRigidBody(character.bodyHandle).translation();
+    character.position = { x, y };
   }
-}
-
-function normalize({ x, y }: Vec2): Vec2 {
-  const length = Math.hypot(x, y);
-  return length === 0 ? { x: 0, y: 0 } : { x: x / length, y: y / length };
 }
