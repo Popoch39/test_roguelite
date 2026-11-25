@@ -4,12 +4,27 @@ import type { Room, RoomTemplate, Wall } from "./types";
 
 export function loadRoom(world: RAPIER.World, template: RoomTemplate, tuning: Tuning): Room {
   const walls = outerWalls(template, tuning.wallThickness);
-  for (const { center, halfExtents } of walls) {
-    world.createCollider(
+  const colliders = [
+    ...walls.map(({ center, halfExtents }) =>
       RAPIER.ColliderDesc.cuboid(halfExtents.x, halfExtents.y).setTranslation(center.x, center.y),
-    );
+    ),
+    ...template.pillars.map(({ center, radius }) =>
+      RAPIER.ColliderDesc.ball(radius).setTranslation(center.x, center.y),
+    ),
+  ];
+  return {
+    width: template.width,
+    height: template.height,
+    walls,
+    pillars: template.pillars,
+    colliderHandles: colliders.map((collider) => world.createCollider(collider).handle),
+  };
+}
+
+export function unloadRoom(world: RAPIER.World, room: Room): void {
+  for (const handle of room.colliderHandles) {
+    world.removeCollider(world.getCollider(handle), false);
   }
-  return { width: template.width, height: template.height, walls };
 }
 
 function outerWalls({ width, height }: RoomTemplate, thickness: number): Wall[] {

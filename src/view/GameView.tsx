@@ -10,7 +10,7 @@ import { RoomMesh } from "./RoomMesh";
 import { SimulationClock } from "./SimulationClock";
 
 export function GameView({ source, mouse }: { source: FrameSource; mouse: Mouse }) {
-  const { room, heroes } = source.frame.current;
+  const { heroes } = source.frame.current;
   const followed = heroes[0];
   const debugOverlayShown = useDebugOverlay();
 
@@ -22,7 +22,7 @@ export function GameView({ source, mouse }: { source: FrameSource; mouse: Mouse 
         <color attach="background" args={["#14181f"]} />
         <ambientLight intensity={1.2} />
         <directionalLight position={[6, 12, 4]} intensity={2} />
-        <RoomMesh room={room} />
+        <RoomMesh source={source} />
         {heroes.map((hero) => (
           <HeroMesh key={hero.id} hero={hero} source={source} />
         ))}

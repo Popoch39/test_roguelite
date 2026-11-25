@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { createRun, DEFAULT_ROOM_TEMPLATE, DEFAULT_TUNING, initSimulation } from "../sim";
+import { createRun, DEFAULT_ROOM_TEMPLATES, DEFAULT_TUNING, initSimulation } from "../sim";
 import { GameView } from "../view/GameView";
 import { Hud } from "../view/Hud";
 import { listenToMovementKeys } from "../view/keyboard";
 import { listenToMouse, type Mouse } from "../view/mouse";
 import { syncHud } from "./hud";
 import { createLoop, type Loop } from "./loop";
+import { chooseRunSeed } from "./runSeed";
 
 interface Playing {
   loop: Loop;
@@ -32,10 +33,10 @@ export function App() {
 
       const startRun = () => {
         const run = createRun({
-          seed: Math.floor(Math.random() * 2 ** 32),
+          seed: chooseRunSeed(window.location.search),
           heroStats: DEFAULT_TUNING.heroStats,
           tuning: DEFAULT_TUNING,
-          roomTemplate: DEFAULT_ROOM_TEMPLATE,
+          roomTemplates: DEFAULT_ROOM_TEMPLATES,
         });
         const started = createLoop(
           run,
@@ -74,7 +75,7 @@ export function App() {
   return (
     playing && (
       <>
-        {/* Keyed by Run: the meshes are built from the Room and the characters the Run started with. */}
+        {/* Keyed by Run: the meshes are built from the characters the Run started with. */}
         <GameView key={playing.runNumber} source={playing.loop} mouse={playing.mouse} />
         <Hud onNewRun={playing.startRun} />
       </>

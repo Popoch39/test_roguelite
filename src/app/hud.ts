@@ -7,12 +7,18 @@ export function syncHud(state: RunState): void {
   const next: HudState = {
     heroHealth: hero?.health ?? 0,
     heroMaxHealth: hero?.stats.maxHealth ?? 0,
+    roomNumber: state.roomIndex + 1,
+    roomCount: state.roomTemplates.length,
+    runSeed: state.seed,
     outcome: state.outcome,
   };
   const shown = useHudStore.getState();
   if (
     next.heroHealth !== shown.heroHealth ||
     next.heroMaxHealth !== shown.heroMaxHealth ||
+    next.roomNumber !== shown.roomNumber ||
+    next.roomCount !== shown.roomCount ||
+    next.runSeed !== shown.runSeed ||
     next.outcome !== shown.outcome
   ) {
     useHudStore.setState(next);

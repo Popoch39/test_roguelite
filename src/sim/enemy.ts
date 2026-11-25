@@ -12,7 +12,13 @@ export function spawnEnemy(world: RAPIER.World, id: number, position: Vec2, tuni
       // Lets the solver see a contact one tick ahead: two characters closing fast would otherwise overlap first.
       .setSoftCcdPrediction(tuning.enemyRadius),
   );
-  world.createCollider(RAPIER.ColliderDesc.ball(tuning.enemyRadius), body);
+  world.createCollider(
+    RAPIER.ColliderDesc.ball(tuning.enemyRadius)
+      // With friction, an Enemy pressing on a pillar on its way to the Hero sticks to it instead of sliding around.
+      .setFriction(0)
+      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min),
+    body,
+  );
 
   return {
     id,

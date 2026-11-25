@@ -25,7 +25,9 @@ export function isFlashing(frame: Frame, lastDamagedTick: number | null): boolea
 
 /** Writes the Hero's interpolated position into `target`, mapping simulation (x, y) to the ground plane (x, 0, z). */
 export function heroGroundPosition(frame: Frame, heroId: number, target: Vector3): Vector3 {
-  return groundPosition(frame.previous.heroes, frame.current.heroes, heroId, frame.alpha, target);
+  // Entering a Room puts the Hero on its entry point at once: there is no way in between to draw.
+  const alpha = frame.previous.roomIndex === frame.current.roomIndex ? frame.alpha : 1;
+  return groundPosition(frame.previous.heroes, frame.current.heroes, heroId, alpha, target);
 }
 
 /** The same for an Enemy; `target` is left untouched once the Enemy is gone. */

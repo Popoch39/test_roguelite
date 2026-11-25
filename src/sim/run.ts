@@ -1,7 +1,8 @@
 import * as RAPIER from "@dimforge/rapier2d-compat";
 import { advanceAttack, attackSector, charactersInSector, startAttack } from "./attack";
 import { actEnemies, spawnEnemy } from "./enemy";
-import { loadRoom } from "./room";
+import { drawSequence, drawSubset } from "./random";
+import { loadRoom, unloadRoom } from "./room";
 import type { Tuning } from "./tuning";
 import type { Command, HeroStats, RoomTemplate, RunState } from "./types";
 import { normalize } from "./vec";
@@ -21,22 +22,31 @@ export interface RunOptions {
   seed: number;
   heroStats: HeroStats;
   tuning: Tuning;
-  roomTemplate: RoomTemplate;
+  roomTemplates: RoomTemplate[];
 }
 
 export const TICKS_PER_SECOND = 60;
 
 const HERO_ID = 1;
 
-export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions): Run {
+export function createRun({ seed, heroStats, tuning, roomTemplates }: RunOptions): Run {
+  const roomCount = tuning.enemiesPerRoom.length;
+  if (roomTemplates.length < roomCount) {
+    throw new Error(
+      `A Run of ${roomCount} Rooms needs ${roomCount} Room Templates, got ${roomTemplates.length}`,
+    );
+  }
+  // Asked of every Room Template, not only of those drawn, so that faulty content fails whatever the Run Seed.
+  const mostEnemies = Math.max(...tuning.enemiesPerRoom);
+  if (roomTemplates.some(({ spawnPoints }) => spawnPoints.length < mostEnemies)) {
+    throw new Error(`Every Room Template needs at least ${mostEnemies} spawn points`);
+  }
+
   const world = new RAPIER.World({ x: 0, y: 0 });
   world.timestep = 1 / TICKS_PER_SECOND;
-  const room = loadRoom(world, roomTemplate, tuning);
 
-  const { entryPoint } = roomTemplate;
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(entryPoint.x, entryPoint.y)
       .lockRotations()
       // Lets the solver see a contact one tick ahead: two characters closing fast would otherwise overlap first.
       .setSoftCcdPrediction(tuning.heroRadius),
@@ -49,20 +59,22 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
     body,
   );
 
-  const enemies = roomTemplate.spawnPoints.map((spawnPoint, index) =>
-    spawnEnemy(world, HERO_ID + 1 + index, spawnPoint, tuning),
-  );
-
   const state: RunState = {
     seed,
+    // The generator works on 32-bit unsigned integers.
+    randomState: seed >>> 0,
     tick: 0,
     phase: "combat",
     outcome: null,
-    room,
+    roomTemplates: [],
+    roomIndex: 0,
+    // Nothing is loaded yet: entering the first Room fills in the Room, the Hero's position and the Enemies.
+    room: { width: 0, height: 0, walls: [], pillars: [], colliderHandles: [] },
+    nextId: HERO_ID + 1,
     heroes: [
       {
         id: HERO_ID,
-        position: { ...entryPoint },
+        position: { x: 0, y: 0 },
         radius: tuning.heroRadius,
         facing: { x: 1, y: 0 },
         stats: { ...heroStats },
@@ -72,10 +84,31 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
         bodyHandle: body.handle,
       },
     ],
-    enemies,
+    enemies: [],
   };
+  state.roomTemplates = drawSequence(state, roomTemplates, roomCount);
+  enterRoom(state, world, tuning, 0);
 
   return { state, [physicsWorld]: world, [tuningTable]: tuning };
+}
+
+function enterRoom(state: RunState, world: RAPIER.World, tuning: Tuning, roomIndex: number): void {
+  const template = state.roomTemplates[roomIndex];
+  const enemyCount = tuning.enemiesPerRoom[roomIndex];
+  if (!template || enemyCount === undefined) {
+    throw new Error(`The Run has no Room ${roomIndex + 1}`);
+  }
+
+  unloadRoom(world, state.room);
+  state.roomIndex = roomIndex;
+  state.room = loadRoom(world, template, tuning);
+  for (const hero of state.heroes) {
+    world.getRigidBody(hero.bodyHandle).setTranslation(template.entryPoint, true);
+    hero.position = { ...template.entryPoint };
+  }
+  state.enemies = drawSubset(state, template.spawnPoints, enemyCount).map((spawnPoint) =>
+    spawnEnemy(world, state.nextId++, spawnPoint, tuning),
+  );
 }
 
 export function step(run: Run, commands: readonly Command[]): void {
@@ -89,8 +122,9 @@ export function step(run: Run, commands: readonly Command[]): void {
   readPositions(state, world);
   resolveHeroAttacks(state, world, run[tuningTable]);
   resolveEnemyAttacks(state, world, run[tuningTable]);
-  removeDefeatedEnemies(state, world);
+  const enemiesDefeated = removeDefeatedEnemies(state, world);
   endRunOnDefeat(state);
+  leaveClearedRoom(state, world, run[tuningTable], enemiesDefeated);
   state.tick += 1;
 }
 
@@ -154,17 +188,36 @@ function resolveEnemyAttacks(state: RunState, world: RAPIER.World, tuning: Tunin
   }
 }
 
-function removeDefeatedEnemies(state: RunState, world: RAPIER.World): void {
+/** Returns how many Enemies were defeated this tick. */
+function removeDefeatedEnemies(state: RunState, world: RAPIER.World): number {
+  const enemiesBefore = state.enemies.length;
   for (const enemy of state.enemies) {
     if (enemy.health <= 0) world.removeRigidBody(world.getRigidBody(enemy.bodyHandle));
   }
   state.enemies = state.enemies.filter((enemy) => enemy.health > 0);
+  return enemiesBefore - state.enemies.length;
 }
 
 function endRunOnDefeat(state: RunState): void {
   if (state.heroes.every((hero) => hero.health <= 0)) {
     state.phase = "ended";
     state.outcome = "defeat";
+  }
+}
+
+/** A Room is cleared on the tick its last Enemy is defeated; one that never held an Enemy is never cleared. */
+function leaveClearedRoom(
+  state: RunState,
+  world: RAPIER.World,
+  tuning: Tuning,
+  enemiesDefeated: number,
+): void {
+  if (state.phase !== "combat" || enemiesDefeated === 0 || state.enemies.length > 0) return;
+  if (state.roomIndex + 1 < state.roomTemplates.length) {
+    enterRoom(state, world, tuning, state.roomIndex + 1);
+  } else {
+    state.phase = "ended";
+    state.outcome = "victory";
   }
 }
 

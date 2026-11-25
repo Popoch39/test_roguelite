@@ -53,11 +53,17 @@ export interface Enemy {
   bodyHandle: number;
 }
 
+export interface Pillar {
+  center: Vec2;
+  radius: number;
+}
+
 export interface RoomTemplate {
   width: number;
   height: number;
   entryPoint: Vec2;
-  /** One Enemy stands on each of them when the Room loads. */
+  pillars: Pillar[];
+  /** Where Enemies can stand when the Room loads; which of them are used is drawn with the Run Seed. */
   spawnPoints: Vec2[];
 }
 
@@ -80,19 +86,30 @@ export interface Room {
   width: number;
   height: number;
   walls: Wall[];
+  pillars: Pillar[];
+  /** The colliders of the walls and pillars, to remove when the Hero leaves the Room. */
+  colliderHandles: number[];
 }
 
 export type RunPhase = "combat" | "ended";
 
-export type RunOutcome = "defeat";
+export type RunOutcome = "victory" | "defeat";
 
 export interface RunState {
   seed: number;
+  /** State of the generator every random choice of the Run is drawn from. */
+  randomState: number;
   tick: number;
   phase: RunPhase;
   /** Null until the Run has ended. */
   outcome: RunOutcome | null;
+  /** The Room Templates of the Run's Rooms, in the order the Hero goes through them. */
+  roomTemplates: RoomTemplate[];
+  /** Position of the current Room in the Run, from 0. */
+  roomIndex: number;
   room: Room;
+  /** The identifier the next character to appear will get: none is ever given twice in a Run. */
+  nextId: number;
   heroes: Hero[];
   enemies: Enemy[];
 }
