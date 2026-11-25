@@ -1,6 +1,6 @@
 import * as RAPIER from "@dimforge/rapier2d-compat";
-import { advanceAttack, enemiesInSector, startAttack } from "./attack";
-import { spawnEnemy } from "./enemy";
+import { advanceAttack, attackSector, charactersInSector, startAttack } from "./attack";
+import { actEnemies, spawnEnemy } from "./enemy";
 import { loadRoom } from "./room";
 import type { Tuning } from "./tuning";
 import type { Command, HeroStats, RoomTemplate, RunState } from "./types";
@@ -35,7 +35,11 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
 
   const { entryPoint } = roomTemplate;
   const body = world.createRigidBody(
-    RAPIER.RigidBodyDesc.dynamic().setTranslation(entryPoint.x, entryPoint.y).lockRotations(),
+    RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(entryPoint.x, entryPoint.y)
+      .lockRotations()
+      // Lets the solver see a contact one tick ahead: two characters closing fast would otherwise overlap first.
+      .setSoftCcdPrediction(tuning.heroRadius),
   );
   world.createCollider(
     RAPIER.ColliderDesc.ball(tuning.heroRadius)
@@ -52,6 +56,8 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
   const state: RunState = {
     seed,
     tick: 0,
+    phase: "combat",
+    outcome: null,
     room,
     heroes: [
       {
@@ -60,6 +66,8 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
         radius: tuning.heroRadius,
         facing: { x: 1, y: 0 },
         stats: { ...heroStats },
+        health: heroStats.maxHealth,
+        lastDamagedTick: null,
         attack: null,
         bodyHandle: body.handle,
       },
@@ -72,13 +80,17 @@ export function createRun({ seed, heroStats, tuning, roomTemplate }: RunOptions)
 
 export function step(run: Run, commands: readonly Command[]): void {
   const { state } = run;
+  if (state.phase === "ended") return;
   const world = run[physicsWorld];
 
   actHeroes(state, world, commands, run[tuningTable]);
+  actEnemies(state, world, run[tuningTable]);
   world.step();
   readPositions(state, world);
   resolveHeroAttacks(state, world, run[tuningTable]);
+  resolveEnemyAttacks(state, world, run[tuningTable]);
   removeDefeatedEnemies(state, world);
+  endRunOnDefeat(state);
   state.tick += 1;
 }
 
@@ -110,13 +122,8 @@ function resolveHeroAttacks(state: RunState, world: RAPIER.World, tuning: Tuning
   for (const hero of state.heroes) {
     const { attack } = hero;
     if (attack?.phase !== "active") continue;
-    const sector = {
-      apex: hero.position,
-      direction: attack.direction,
-      reach: attack.reach,
-      angle: attack.angle,
-    };
-    for (const enemy of enemiesInSector(world, state.enemies, sector)) {
+    const sector = attackSector(hero.position, attack);
+    for (const enemy of charactersInSector(world, state.enemies, sector)) {
       if (attack.damagedIds.includes(enemy.id)) continue;
       attack.damagedIds.push(enemy.id);
       enemy.health -= damage;
@@ -133,11 +140,32 @@ function resolveHeroAttacks(state: RunState, world: RAPIER.World, tuning: Tuning
   }
 }
 
+function resolveEnemyAttacks(state: RunState, world: RAPIER.World, tuning: Tuning): void {
+  for (const enemy of state.enemies) {
+    const { attack } = enemy;
+    if (attack?.phase !== "active") continue;
+    const sector = attackSector(enemy.position, attack);
+    for (const hero of charactersInSector(world, state.heroes, sector)) {
+      if (attack.damagedIds.includes(hero.id)) continue;
+      attack.damagedIds.push(hero.id);
+      hero.health = Math.max(hero.health - tuning.enemyAttack.damage, 0);
+      hero.lastDamagedTick = state.tick;
+    }
+  }
+}
+
 function removeDefeatedEnemies(state: RunState, world: RAPIER.World): void {
   for (const enemy of state.enemies) {
     if (enemy.health <= 0) world.removeRigidBody(world.getRigidBody(enemy.bodyHandle));
   }
   state.enemies = state.enemies.filter((enemy) => enemy.health > 0);
+}
+
+function endRunOnDefeat(state: RunState): void {
+  if (state.heroes.every((hero) => hero.health <= 0)) {
+    state.phase = "ended";
+    state.outcome = "defeat";
+  }
 }
 
 function readPositions(state: RunState, world: RAPIER.World): void {

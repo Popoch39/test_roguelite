@@ -6,6 +6,7 @@ export interface Vec2 {
 export interface HeroStats {
   /** Units per second. */
   speed: number;
+  maxHealth: number;
 }
 
 export type AttackPhase = "windup" | "active" | "recovery";
@@ -31,6 +32,9 @@ export interface Hero {
   /** Unit vector toward where the Hero last aimed. */
   facing: Vec2;
   stats: HeroStats;
+  health: number;
+  /** Null until the Hero is first damaged. */
+  lastDamagedTick: number | null;
   /** Null while the Hero is free to act. */
   attack: Attack | null;
   bodyHandle: number;
@@ -44,6 +48,8 @@ export interface Enemy {
   maxHealth: number;
   /** Null until the Enemy is first damaged. */
   lastDamagedTick: number | null;
+  /** Null while the Enemy chases. */
+  attack: Attack | null;
   bodyHandle: number;
 }
 
@@ -76,9 +82,16 @@ export interface Room {
   walls: Wall[];
 }
 
+export type RunPhase = "combat" | "ended";
+
+export type RunOutcome = "defeat";
+
 export interface RunState {
   seed: number;
   tick: number;
+  phase: RunPhase;
+  /** Null until the Run has ended. */
+  outcome: RunOutcome | null;
   room: Room;
   heroes: Hero[];
   enemies: Enemy[];

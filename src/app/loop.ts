@@ -1,4 +1,11 @@
-import { colliderOutlines, step, TICKS_PER_SECOND, type Command, type Run } from "../sim";
+import {
+  colliderOutlines,
+  step,
+  TICKS_PER_SECOND,
+  type Command,
+  type Run,
+  type RunState,
+} from "../sim";
 import type { Frame, FrameSource } from "../view/frame";
 
 const TICK_SECONDS = 1 / TICKS_PER_SECOND;
@@ -10,7 +17,11 @@ export interface Loop extends FrameSource {
   resume(): void;
 }
 
-export function createLoop(run: Run, sampleCommands: () => Command[]): Loop {
+export function createLoop(
+  run: Run,
+  sampleCommands: () => Command[],
+  onTick: (state: RunState) => void,
+): Loop {
   const frame: Frame = { previous: structuredClone(run.state), current: run.state, alpha: 1 };
   let accumulator = 0;
   let suspended = false;
@@ -32,6 +43,7 @@ export function createLoop(run: Run, sampleCommands: () => Command[]): Loop {
         // Only the state just before the last tick is ever drawn.
         if (tick === ticks - 1) frame.previous = structuredClone(run.state);
         step(run, sampleCommands());
+        onTick(run.state);
       }
       accumulator = ticks === MAX_TICKS_PER_FRAME ? 0 : accumulator - ticks * TICK_SECONDS;
       frame.alpha = accumulator / TICK_SECONDS;

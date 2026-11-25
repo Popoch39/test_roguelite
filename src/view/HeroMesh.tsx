@@ -1,8 +1,8 @@
 import { useFrame } from "@react-three/fiber";
 import { useRef } from "react";
-import { CircleGeometry, type Group, type Mesh } from "three";
+import { CircleGeometry, type Group, type Mesh, type MeshStandardMaterial } from "three";
 import type { Hero } from "../sim";
-import { heroGroundPosition, type FrameSource } from "./frame";
+import { heroGroundPosition, isFlashing, type FrameSource } from "./frame";
 
 const BODY_LENGTH = 0.8;
 // At head height: any lower and the body hides it from the tilted camera when the Hero faces away.
@@ -13,6 +13,7 @@ const SECTOR_HEIGHT = 0.03;
 
 export function HeroMesh({ hero, source }: { hero: Hero; source: FrameSource }) {
   const group = useRef<Group>(null);
+  const body = useRef<MeshStandardMaterial>(null);
   const sector = useRef<Mesh>(null);
   const sectorAngle = useRef(0);
   const standingHeight = hero.radius + BODY_LENGTH / 2;
@@ -20,8 +21,11 @@ export function HeroMesh({ hero, source }: { hero: Hero; source: FrameSource }) 
 
   useFrame(() => {
     const current = source.frame.current.heroes.find(({ id }) => id === hero.id);
-    if (!group.current || !sector.current || !current) return;
+    if (!group.current || !body.current || !sector.current || !current) return;
     heroGroundPosition(source.frame, hero.id, group.current.position);
+    body.current.emissive.set(
+      isFlashing(source.frame, current.lastDamagedTick) ? "#ffffff" : "#000000",
+    );
     // Simulation y runs along the view's z, so turning toward +y is a negative turn around the vertical axis.
     group.current.rotation.y = Math.atan2(-current.facing.y, current.facing.x);
 
@@ -46,7 +50,7 @@ export function HeroMesh({ hero, source }: { hero: Hero; source: FrameSource }) 
     <group ref={group}>
       <mesh position-y={standingHeight}>
         <capsuleGeometry args={[hero.radius, BODY_LENGTH]} />
-        <meshStandardMaterial color="#e8a33d" />
+        <meshStandardMaterial ref={body} color="#e8a33d" />
       </mesh>
       <mesh position={[hero.radius + 0.2, markerHeight, 0]} rotation-z={-Math.PI / 2}>
         <coneGeometry args={[0.2, 0.45, 12]} />
